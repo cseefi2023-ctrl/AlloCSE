@@ -1972,6 +1972,16 @@ begin
   update requests set parent_id = cheques where id = cheques2;
   perform private.add_event(cheques2, 'Associée au sujet n° ' || num || ', déjà soulevé par d''autres salariés');
   perform private.set_status(cheques2, 'en_cours'); perform private.stamp(private.ago(11));
+  -- Activités sociales : le CSE répond lui-même, sans passer par la direction
+  insert into messages (request_id, author_type, author_id, body, is_answer)
+  values (cheques, 'elu', main, E'Bonjour,\n\nLes chèques cadeaux de fin d’année seront distribués la semaine du 7 décembre, '
+          'au local du CSE, avec le même montant que l’an dernier.', true);
+  perform private.add_event(cheques, 'Réponse du CSE (par ' || coalesce(main_name, 'un élu') || ')');
+  perform private.set_status(cheques, 'repondue');
+  perform private.answer_linked(cheques, E'Bonjour,\n\nLes chèques cadeaux de fin d’année seront distribués la semaine du 7 décembre, '
+          'au local du CSE, avec le même montant que l’an dernier.');
+  update messages set author_id = main where request_id in (cheques, cheques2) and is_answer;
+  perform private.stamp(private.ago(9));
   perform private.assign_number(nao); perform private.stamp(private.ago(8, 11));
 
   -- Réunion passée (tenue) : points fixes, deux sujets traités, point récurrent
@@ -2012,7 +2022,7 @@ begin
   -- Prochaine réunion (planifiée) : points fixes, sujets inscrits, point récurrent repris
   m2 := private.sample_meeting(-10, 'planifiee');
   pos := private.sample_fixed_points(m2);
-  perform private.inscribe(m2, cheques, pos + 1, null);
+  perform private.inscribe(m2, transport, pos + 1, null);
   perform private.inscribe(m2, nao, pos + 2, null);
   insert into agenda_items (meeting_id, recurring_id, title, wording, position)
   values (m2.id, rp, 'Point sur la mutuelle', 'Suivi du contrat santé : cotisations, réclamations, évolutions.', pos + 3);

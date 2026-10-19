@@ -49,7 +49,7 @@ export default function NewRequest() {
         Elle suit ensuite le même parcours qu’une demande de salarié.
       </Typography>
 
-      <KindChoice value={form.kind} onChange={(kind) => setForm((f) => ({ ...f, kind }))} />
+      <KindChoice audience="elus" value={form.kind} onChange={(kind) => setForm((f) => ({ ...f, kind }))} />
       <Collapse in={form.kind === 'signalement'}>
         <RadioGroup value={form.temporality} onChange={set('temporality')} sx={{ mb: 2 }}>
           <FormControlLabel value="actuel" control={<Radio />} label="La situation existe déjà" />

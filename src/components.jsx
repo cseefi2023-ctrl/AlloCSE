@@ -209,11 +209,29 @@ const KIND_CHOICES = [
   },
 ]
 
-export function KindChoice({ value, onChange }) {
+// Questions des élus : elles s'adressent à la direction
+const KIND_CHOICES_ELUS = [
+  {
+    value: 'demande',
+    title: 'Une question',
+    text: 'Le CSE demande une information ou une explication à la direction.',
+    examples: ['Quel est le calendrier des NAO 2027 ?', 'Combien d’intérimaires sur le site ce trimestre, et sur quels postes ?'],
+  },
+  {
+    value: 'signalement',
+    title: 'Une alerte',
+    text: 'Le CSE porte à la connaissance de la direction une situation anormale, actuelle ou à venir, et demande des mesures.',
+    examples: ['Températures excessives à l’atelier montage depuis le début de l’été.',
+      'Travail du samedi organisé sans consultation du CSE.'],
+  },
+]
+
+export function KindChoice({ value, onChange, audience }) {
+  const choices = audience === 'elus' ? KIND_CHOICES_ELUS : KIND_CHOICES
   return (
     <RadioGroup value={value} onChange={(e) => onChange(e.target.value)} aria-label="Type de message"
       sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 2 }}>
-      {KIND_CHOICES.map((c) => {
+      {choices.map((c) => {
         const on = value === c.value
         return (
           <Box key={c.value} component="label" sx={{
