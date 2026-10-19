@@ -9,6 +9,6 @@
 //  « secret » ni « service_role ».
 // =====================================================================
 window.ALLOCSE_CONFIG = {
-  supabaseUrl: 'https://VOTRE-PROJET.supabase.co',
-  supabaseAnonKey: 'VOTRE_CLE_ANON',
+  supabaseUrl: 'https://tpgpuxrwlvdtllvrocsw.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRwZ3B1eHJ3bHZkdGxsdnJvY3N3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzOTUxNDcsImV4cCI6MjEwNzk3MTE0N30.YkxALktuyYBR1fY5vIvJ1PX5M2Vyl9QMiY2IzDZ-dVQ',
 }
