@@ -1,0 +1,22 @@
+# Les projets Supabase gratuits se mettent en pause après 7 jours sans activité.
+# Ce petit appel tous les 3 jours garde la base éveillée (il ne lit que la configuration publique).
+name: Garder Supabase éveillé
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Appel de public_config
+        run: |
+          URL=$(grep -oP "supabaseUrl:\s*'\K[^']+" public/config.js)
+          KEY=$(grep -oP "supabaseAnonKey:\s*'\K[^']+" public/config.js)
+          case "$URL" in *VOTRE*) echo "config.js pas encore renseigné"; exit 0;; esac
+          curl -fsS -X POST "$URL/rest/v1/rpc/public_config" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" -d '{}' > /dev/null
+          echo "Supabase répond."
