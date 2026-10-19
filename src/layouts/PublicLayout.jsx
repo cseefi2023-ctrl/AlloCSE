@@ -4,6 +4,7 @@ import DarkModeIcon from '@mui/icons-material/DarkModeOutlined'
 import LightModeIcon from '@mui/icons-material/LightModeOutlined'
 import { useApp } from '../App'
 import { palette } from '../theme'
+import { DemoBanner } from '../components'
 
 export function Logo({ to = '/', light = false }) {
   return (
@@ -38,6 +39,7 @@ export default function PublicLayout() {
   const { config, user } = useApp()
   return (
     <Box sx={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <DemoBanner config={config} />
       <Container maxWidth="md" component="header"
         sx={{ py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Logo />

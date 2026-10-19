@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Box, Button, Link, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import { useApp } from '../../App'
-import { auth } from '../../api'
+import { DEMO_ACCOUNTS, DEMO_PASSWORD, auth } from '../../api'
 import { ErrorAlert } from '../../components'
 
 export default function Login() {
-  const { session, user } = useApp()
+  const { session, user, config } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const [mode, setMode] = useState('login') // login | signup | reset
@@ -42,6 +42,14 @@ export default function Login() {
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
 
+  const demoLogin = async (email) => {
+    setBusy(true); setError(null)
+    try {
+      await auth.signIn(email, DEMO_PASSWORD)
+      navigate(location.state?.from || '/elus', { replace: true })
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+
   const titles = { login: 'Se connecter', signup: 'Créer mon compte', reset: 'Recevoir un lien' }
   return (
     <Box component="form" onSubmit={submit} sx={{ pt: { xs: 2, sm: 6 }, maxWidth: 440 }}>
@@ -49,6 +57,23 @@ export default function Login() {
       <Typography color="text.secondary" sx={{ mb: 3 }}>
         Réservé aux membres du CSE. Un nouveau compte doit être validé par un administrateur avant d’accéder aux demandes.
       </Typography>
+      {config?.demo && (
+        <Box sx={{ mb: 3, p: 2, border: 2, borderColor: 'secondary.main', borderRadius: 2 }}>
+          <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Découvrir l’espace élus</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Entrez d’un clic avec un compte de démonstration (mot de passe : <strong>{DEMO_PASSWORD}</strong>).
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {DEMO_ACCOUNTS.map((a) => (
+              <Button key={a.email} variant="contained" color="secondary" disabled={busy} onClick={() => demoLogin(a.email)}
+                sx={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', lineHeight: 1.3 }}>
+                Entrer comme {a.label.toLowerCase()}
+                <Box component="span" sx={{ fontWeight: 400, fontSize: '0.8rem' }}>{a.who}</Box>
+              </Button>
+            ))}
+          </Stack>
+        </Box>
+      )}
       {mode !== 'reset' && (
         <ToggleButtonGroup exclusive fullWidth color="primary" value={mode} onChange={(_, v) => v && (setMode(v), setError(null))} sx={{ mb: 2.5 }}>
           <ToggleButton value="login" sx={{ textTransform: 'none', fontWeight: 700 }}>J’ai un compte</ToggleButton>

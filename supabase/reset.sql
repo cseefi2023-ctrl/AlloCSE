@@ -30,6 +30,8 @@ drop function if exists public.is_active_elu, public.is_admin, public.can_see_re
   public.delete_meeting, public.preparation, public.propose_agenda, public.add_agenda_item,
   public.generate_agenda, public.update_agenda_item, public.remove_agenda_item, public.reorder_agenda,
   public.meeting_word_data, public.update_my_profile, public.admin_update_elu,
-  public.create_elu_request, public.add_commitment, public.update_commitment, public.delete_commitment cascade;
+  public.create_elu_request, public.add_commitment, public.update_commitment, public.delete_commitment,
+  public.admin_data_summary, public.admin_wipe_data, public.admin_load_sample, public.admin_export_data,
+  public.admin_import_data, public.demo_reset cascade;
 
 drop schema if exists private cascade;

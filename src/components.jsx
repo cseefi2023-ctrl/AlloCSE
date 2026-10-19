@@ -251,3 +251,13 @@ export function CommitmentChip({ c }) {
   const s = COMMITMENT_STATUS[c.late ? 'late' : c.status]
   return <Chip size="small" label={s.label} sx={{ bgcolor: `${s.color}1F`, color: s.color, border: `1px solid ${s.color}55` }} />
 }
+
+// Bandeau de l'espace de démonstration
+export function DemoBanner({ config, sx }) {
+  if (!(config?.demo)) return null
+  return (
+    <Box role="note" sx={{ bgcolor: palette.signal, color: palette.ink, px: 2, py: 0.75, textAlign: 'center', fontSize: '0.9rem', ...sx }}>
+      <strong>Démonstration</strong> : toutes les données sont fictives et remises à zéro chaque nuit.
+    </Box>
+  )
+}

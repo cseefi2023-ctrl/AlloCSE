@@ -2,14 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Box, CircularProgress, CssBaseline, ThemeProvider, useMediaQuery } from '@mui/material'
 import NewPasswordDialog from './pages/elus/NewPasswordDialog'
-import { auth, getMyElu, getPublicConfig, isConfigured } from './api'
+import { auth, getMyElu, getPublicConfig, isConfigured, tenant } from './api'
 import { makeTheme } from './theme'
 import PublicLayout from './layouts/PublicLayout'
 import EluLayout from './layouts/EluLayout'
 import Home from './pages/Home'
 import Submit from './pages/Submit'
 import Track from './pages/Track'
-import Setup from './pages/Setup'
+import Setup, { UnknownSpace } from './pages/Setup'
 import Login from './pages/elus/Login'
 import Pending from './pages/elus/Pending'
 import Dashboard from './pages/elus/Dashboard'
@@ -84,7 +84,7 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         {recovery && <NewPasswordDialog onDone={() => setRecovery(false)} />}
-        {!isConfigured ? <Setup /> : (
+        {!tenant.known ? <UnknownSpace /> : !isConfigured ? <Setup /> : (
           <Routes>
             <Route element={<PublicLayout />}>
               <Route index element={<Home />} />

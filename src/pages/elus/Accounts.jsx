@@ -6,7 +6,7 @@ import {
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useApp } from '../../App'
-import { adminUpdateElu, customTemplates, getSettings, listElus, removeTemplate, updateSettings, uploadTemplate } from '../../api'
+import { adminUpdateElu, dataSummary, exportData, importData, loadSample, tenant, wipeData, signupUrl, customTemplates, getSettings, listElus, removeTemplate, updateSettings, uploadTemplate } from '../../api'
 import { ErrorAlert, Section } from '../../components'
 
 export default function Accounts() {
@@ -28,7 +28,7 @@ export default function Accounts() {
     e.preventDefault()
     if (await change(edit.id, { full_name: edit.full_name, mandate: edit.mandate ?? '', role: edit.role }, 'Compte modifié')) setEdit(null)
   }
-  const signupLink = `${window.location.href.split('#')[0]}#/elus/connexion`
+  const signupLink = signupUrl()
   const copyLink = async () => {
     try { await navigator.clipboard.writeText(signupLink); setToast('Lien copié') } catch { /* presse-papiers indisponible */ }
   }
@@ -96,6 +96,8 @@ export default function Accounts() {
 
       <SettingsCard onSaved={() => { refreshConfig(); setToast('Réglages enregistrés') }} />
 
+      <DataCard />
+
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="xs" component="form" onSubmit={save}>
         <DialogTitle>Modifier le compte</DialogTitle>
         <DialogContent>
@@ -133,6 +135,7 @@ const WORDINGS = [
 ]
 
 function SettingsCard({ onSaved }) {
+  const { config } = useApp()
   const [s, setS] = useState(null)
   const [error, setError] = useState(null)
   useEffect(() => {
@@ -211,7 +214,9 @@ function SettingsCard({ onSaved }) {
           <Button type="submit" variant="contained" sx={{ mt: 2 }}>Enregistrer les réglages</Button>
         </CardContent>
       </Card>
-      <TemplatesCard />
+      {config?.demo
+        ? <Alert severity="info" sx={{ mt: 2 }}>Démonstration : les modèles Word neutres sont utilisés, l’envoi de modèles est désactivé.</Alert>
+        : <TemplatesCard />}
     </Section>
   )
 }
@@ -272,5 +277,119 @@ function TemplatesCard() {
         {done && <Alert severity="success" sx={{ mt: 2 }} onClose={() => setDone(null)}>{done}</Alert>}
       </CardContent>
     </Card>
+  )
+}
+
+// Données de l'espace : repartir de zéro, puis charger un jeu de données préparé à l'avance
+function DataCard() {
+  const { config } = useApp()
+  const [sum, setSum] = useState(null)
+  const [error, setError] = useState(null)
+  const [done, setDone] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [wipe, setWipe] = useState(false)
+  const [confirm, setConfirm] = useState('')
+  const [shift, setShift] = useState(true)
+  const load = () => dataSummary().then(setSum).catch((e) => setError(e.message))
+  useEffect(() => { load() }, [])
+
+  const act = async (name, fn, message) => {
+    setError(null); setDone(null); setBusy(name)
+    try { setSum(await fn()); setDone(message) } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+  const doExport = () => act('export', async () => {
+    const data = await exportData()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `allocse-${tenant.key}-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    return dataSummary()
+  }, 'Fichier exporté. Gardez-le en lieu sûr : il contient toutes les demandes.')
+  const doImport = (file) => file && act('import', async () => {
+    let data
+    try { data = JSON.parse(await file.text()) } catch { throw new Error('Ce fichier n’est pas un export AlloCSE.') }
+    return importData(data, shift)
+  }, 'Jeu de données chargé.')
+  const doWipe = (e) => {
+    e.preventDefault()
+    setWipe(false)
+    act('wipe', () => wipeData(confirm), 'Espace vidé : vous repartez de zéro.')
+    setConfirm('')
+  }
+
+  const empty = sum?.empty
+  return (
+    <Section title="Données de l’espace">
+      <Card>
+        <CardContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: '70ch' }}>
+            Pour une présentation : exportez un jeu de données préparé, videz l’espace pour partir de zéro,
+            puis rechargez le fichier d’un clic. Les comptes des élus, les réglages et les modèles Word ne sont jamais effacés.
+          </Typography>
+          <Typography sx={{ mb: 2 }}>
+            {sum == null ? '…' : empty ? <strong>L’espace est vide.</strong>
+              : <>Actuellement : <strong>{sum.requests}</strong> demande{sum.requests > 1 ? 's' : ''}, <strong>{sum.meetings}</strong> réunion{sum.meetings > 1 ? 's' : ''}, <strong>{sum.commitments}</strong> engagement{sum.commitments > 1 ? 's' : ''}.</>}
+          </Typography>
+          <Stack spacing={1.5}>
+            <DataRow title="Exporter" text="Télécharge toutes les données de l’espace dans un fichier .json.">
+              <Button variant="outlined" onClick={doExport} disabled={!!busy || empty}>{busy === 'export' ? 'Export…' : 'Exporter'}</Button>
+            </DataRow>
+            <DataRow title="Repartir de zéro" text="Efface les demandes, réunions et engagements. Exportez d’abord si vous voulez les retrouver.">
+              <Button color="error" variant="outlined" onClick={() => setWipe(true)} disabled={!!busy || empty || sum == null}>Vider l’espace</Button>
+            </DataRow>
+            <DataRow title="Charger un fichier" text={<>
+              Recharge un export dans l’espace vide.
+              <Box component="label" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, cursor: 'pointer' }}>
+                <Switch size="small" checked={shift} onChange={(e) => setShift(e.target.checked)} />
+                Décaler les dates à aujourd’hui (les délais et réunions gardent le même écart)
+              </Box></>}>
+              <Button component="label" variant="contained" disabled={!!busy || !empty}>
+                {busy === 'import' ? 'Chargement…' : 'Charger un fichier'}
+                <input hidden type="file" accept=".json,application/json" onChange={(e) => { doImport(e.target.files[0]); e.target.value = '' }} />
+              </Button>
+            </DataRow>
+            <DataRow title="Exemple AlloCSE" text="Remplit l’espace vide avec un exemple fictif : demandes, signalements, deux réunions, engagements de la direction.">
+              <Button variant="outlined" disabled={!!busy || !empty} onClick={() => act('sample', loadSample, 'Exemple chargé.')}>
+                {busy === 'sample' ? 'Chargement…' : 'Charger l’exemple'}
+              </Button>
+            </DataRow>
+          </Stack>
+          {!empty && sum && <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>Pour charger un fichier ou l’exemple, videz d’abord l’espace.</Typography>}
+          {config?.demo && <Alert severity="info" sx={{ mt: 2 }}>Démonstration : l’exemple est rechargé automatiquement chaque nuit.</Alert>}
+          <ErrorAlert error={error} onClose={() => setError(null)} />
+          {done && <Alert severity="success" sx={{ mt: 2 }} onClose={() => setDone(null)}>{done}</Alert>}
+        </CardContent>
+      </Card>
+
+      <Dialog open={wipe} onClose={() => setWipe(false)} fullWidth maxWidth="xs" component="form" onSubmit={doWipe}>
+        <DialogTitle>Vider l’espace ?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Toutes les demandes ({sum?.requests}), réunions et engagements seront définitivement effacés,
+            y compris pour les salariés qui suivent leur demande. Tapez <strong>EFFACER</strong> pour confirmer.
+          </Typography>
+          <TextField autoFocus fullWidth label="Confirmation" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWipe(false)}>Annuler</Button>
+          <Button type="submit" color="error" variant="contained" disabled={confirm.trim().toUpperCase() !== 'EFFACER'}>Effacer</Button>
+        </DialogActions>
+      </Dialog>
+    </Section>
+  )
+}
+
+function DataRow({ title, text, children }) {
+  return (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}
+      sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary" component="div">{text}</Typography>
+      </Box>
+      {children}
+    </Stack>
   )
 }

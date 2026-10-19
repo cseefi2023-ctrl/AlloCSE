@@ -1,0 +1,23 @@
+# Remet l'espace de démonstration à zéro chaque nuit : comptes de démo, réglages, données fictives.
+# Ne touche qu'aux espaces marqués « demo: true » dans public/config.js (et la base refuse si elle n'est pas une démo).
+name: Remise à zéro de la démonstration
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Appel de demo_reset
+        run: |
+          node scripts/espaces.mjs --demo > demos.txt
+          [ -s demos.txt ] || { echo "Aucun espace de démonstration configuré."; exit 0; }
+          while read -r KEY URL APIKEY DEMO; do
+            curl -fsS -X POST "$URL/rest/v1/rpc/demo_reset" \
+              -H "apikey: $APIKEY" -H "Content-Type: application/json" -d '{}'
+            echo " ← espace $KEY"
+          done < demos.txt

@@ -5,20 +5,19 @@
 // supabase/schema.sql, qui portent toutes les règles (droits, visibilité, ODJ…).
 import { createClient } from '@supabase/supabase-js'
 import { buildWordDocument, missingMarkers } from './word'
+import { appBaseUrl, tenant, tenantStorageKey } from './tenant'
 
-const cfg = (typeof window !== 'undefined' && window.ALLOCSE_CONFIG) || {}
-export const isConfigured = Boolean(
-  cfg.supabaseUrl && cfg.supabaseAnonKey && !/VOTRE|YOUR/i.test(cfg.supabaseUrl + cfg.supabaseAnonKey),
-)
+export { tenant }
+export const isConfigured = tenant.configured
 
 export const supabase = isConfigured
-  ? createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+  ? createClient(tenant.supabaseUrl, tenant.supabaseAnonKey, {
     // PKCE : les liens reçus par e-mail reviennent en ?code=… (compatible avec les routes en #)
-    auth: { persistSession: true, storageKey: 'allocse.auth', flowType: 'pkce' },
+    auth: { persistSession: true, storageKey: tenantStorageKey('auth'), flowType: 'pkce' },
   })
   : null
 
-const CODES_KEY = 'allocse.mesCodes'
+const CODES_KEY = tenantStorageKey('mesCodes')
 function safeGet(key) {
   try { return localStorage.getItem(key) } catch { return null }
 }
@@ -205,7 +204,7 @@ export const auth = {
     password,
     options: {
       data: { full_name: fullName.trim(), mandate: mandate?.trim() || null },
-      emailRedirectTo: window.location.href.split('#')[0],
+      emailRedirectTo: appBaseUrl(),
     },
   })),
   signOut: () => supabase.auth.signOut(),
@@ -215,7 +214,7 @@ export const auth = {
       .catch(() => { throw new ApiError(400, 'Mot de passe actuel incorrect.') })
     return run(supabase.auth.updateUser({ password: next }))
   },
-  resetPassword: (email) => run(supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href.split('#')[0] })),
+  resetPassword: (email) => run(supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: appBaseUrl() })),
 }
 
 export const getPublicConfig = () => rpc('public_config')
@@ -231,6 +230,23 @@ export const adminUpdateElu = (id, patch) => rpc('admin_update_elu', {
 export const updateMyProfile = (fullName, mandate) => rpc('update_my_profile', { p_full_name: fullName, p_mandate: mandate || null })
 export const getSettings = () => run(supabase.from('settings').select('*').eq('id', 1).single())
 export const updateSettings = (patch) => run(supabase.from('settings').update(patch).eq('id', 1))
+
+// ---------- Données de l'espace (administrateurs) ----------
+
+export const dataSummary = () => rpc('admin_data_summary')
+export const wipeData = (confirm) => rpc('admin_wipe_data', { p_confirm: confirm })
+export const loadSample = () => rpc('admin_load_sample')
+export const exportData = () => rpc('admin_export_data')
+export const importData = (data, shift) => rpc('admin_import_data', { p: data, p_shift: Boolean(shift) })
+
+// ---------- Démonstration ----------
+
+export const DEMO_ACCOUNTS = [
+  { email: 'demo-admin@allocse.app', label: 'Administrateur', who: 'Camille Durand, secrétaire du CSE' },
+  { email: 'demo-elu@allocse.app', label: 'Élu', who: 'Lucas Bernard, titulaire' },
+]
+export const DEMO_PASSWORD = 'demo-allocse'
+export const demoReset = () => rpc('demo_reset')
 
 // ---------- Affichage ----------
 
@@ -255,7 +271,8 @@ export const todayIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 // Lien de suivi partageable (fonctionne sur GitHub Pages grâce au #)
-export const trackingUrl = (code) => `${window.location.href.split('#')[0]}#/suivi/${code}`
+export const trackingUrl = (code) => `${appBaseUrl()}#/suivi/${code}`
+export const signupUrl = () => `${appBaseUrl()}#/elus/connexion`
 
 // Période d'un signalement : « depuis le 12 septembre 2026 », « du … au … », ou '' si inconnue
 export function periodLabel(r) {

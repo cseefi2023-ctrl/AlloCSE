@@ -5,7 +5,7 @@ import { auth, updateMyProfile } from '../../api'
 import { ErrorAlert } from '../../components'
 
 export default function Profile() {
-  const { user, reloadUser, refreshConfig } = useApp()
+  const { user, reloadUser, refreshConfig, config } = useApp()
   const [profile, setProfile] = useState({ full_name: user.full_name, mandate: user.mandate || '' })
   const [pErr, setPErr] = useState(null)
   const [pOk, setPOk] = useState(false)
@@ -46,7 +46,9 @@ export default function Profile() {
         <Button type="submit" variant="outlined" sx={{ mt: 2 }}>Enregistrer le profil</Button>
       </Box>
 
-      <Box component="form" onSubmit={submit}>
+      {config?.demo ? (
+        <Alert severity="info">Démonstration : le mot de passe des comptes de démonstration ne peut pas être changé.</Alert>
+      ) : <Box component="form" onSubmit={submit}>
         <Typography variant="h3" component="h2" sx={{ mb: 2 }}>Mot de passe</Typography>
         <Stack spacing={2}>
           <TextField label="Mot de passe actuel" type="password" autoComplete="current-password" value={form.current_password} onChange={(e) => setForm({ ...form, current_password: e.target.value })} />
@@ -56,7 +58,7 @@ export default function Profile() {
         <ErrorAlert error={error} />
         {ok && <Alert severity="success" sx={{ my: 2 }}>Mot de passe modifié.</Alert>}
         <Button type="submit" variant="contained" sx={{ mt: 2 }}>Changer le mot de passe</Button>
-      </Box>
+      </Box>}
     </Box>
   )
 }

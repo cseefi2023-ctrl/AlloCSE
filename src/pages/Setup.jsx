@@ -26,3 +26,17 @@ export default function Setup() {
     </Container>
   )
 }
+
+// Lien ?cse=… qui ne correspond à aucun espace : on ne liste pas les autres clients
+export function UnknownSpace() {
+  return (
+    <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Logo />
+      <Typography variant="h2" component="h1" sx={{ mt: 4, mb: 1 }}>Espace introuvable</Typography>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        Ce lien ne correspond à aucun espace CSE. Vérifiez l’adresse transmise par votre CSE :
+        elle se termine par <Box component="code" sx={{ fontFamily: mono }}>?cse=</Box> suivi du nom de votre espace.
+      </Typography>
+    </Container>
+  )
+}

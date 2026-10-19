@@ -12,11 +12,12 @@ import GroupIcon from '@mui/icons-material/GroupOutlined'
 import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import { useApp } from '../App'
 import { Logo, ModeToggle } from './PublicLayout'
+import { DemoBanner } from '../components'
 
 const DRAWER = 240
 
 export default function EluLayout() {
-  const { user, logout } = useApp()
+  const { user, logout, config } = useApp()
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const location = useLocation()
@@ -76,6 +77,7 @@ export default function EluLayout() {
 
       <Box component="main" sx={{ flex: 1, minWidth: 0, px: { xs: 2, sm: 3, md: 4 }, pt: { xs: 9, sm: 10 }, pb: { xs: 11, md: 5 } }}>
         <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+          <DemoBanner config={config} sx={{ borderRadius: 2, mb: 2 }} />
           <Outlet />
         </Box>
       </Box>
