@@ -19,7 +19,14 @@ begin
   end if;
 end $$;
 
-drop table if exists public.commitments, public.agenda_items, public.recurring_points, public.meetings, public.events,
+do $$
+begin
+  if to_regnamespace('cron') is not null and exists (select 1 from cron.job where jobname = 'allocse-notifications') then
+    perform cron.unschedule('allocse-notifications');
+  end if;
+end $$;
+
+drop table if exists public.notifications, public.request_notify, public.commitments, public.agenda_items, public.recurring_points, public.meetings, public.events,
   public.messages, public.request_viewers, public.requests, public.elus, public.settings cascade;
 
 drop function if exists public.is_active_elu, public.is_admin, public.can_see_request,
@@ -32,6 +39,6 @@ drop function if exists public.is_active_elu, public.is_admin, public.can_see_re
   public.meeting_word_data, public.update_my_profile, public.admin_update_elu,
   public.create_elu_request, public.add_commitment, public.update_commitment, public.delete_commitment,
   public.admin_data_summary, public.admin_wipe_data, public.admin_load_sample, public.admin_export_data,
-  public.admin_import_data, public.demo_reset cascade;
+  public.admin_import_data, public.demo_reset, public.admin_notification_status, public.admin_send_test_mail cascade;
 
 drop schema if exists private cascade;

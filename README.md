@@ -11,6 +11,7 @@ Elle est hébergée gratuitement, sans serveur à soi :
 **Côté salarié, sans compte**
 - Faire une **demande** ou un **signalement**. Un signalement porte sur une situation actuelle ou à venir, avec sa date de début et de fin si elles sont connues. La demande peut être anonyme ou non.
 - **Choisir qui peut lire** : tous les élus, ou seulement ceux qu'il coche. Ce choix s'impose à tout le monde, administrateurs compris. Un élu exclu ne voit ni le contenu de la demande ni même son existence.
+- Cocher **« Recevoir un e-mail quand ma demande avance »** : un e-mail part à chaque réponse ou message du CSE et à la clôture. L'e-mail ne contient pas la réponse, il invite à la lire dans l'appli. Pour une demande anonyme, l'adresse n'est jamais montrée aux élus et elle est effacée à la clôture.
 - Recevoir un **numéro de suivi** (`AC-2026-7KQ4-X9M2`, impossible à deviner). Avec ce numéro, il suit l'avancement, lit la réponse du CSE et peut ajouter des précisions.
 
 **Côté élus, avec un compte validé**
@@ -142,6 +143,12 @@ Un modèle est un document Word ordinaire (logo, destinataires, signatures) qui 
 
 - **Réglages** (administrateurs, menu **Élus**) : entreprise, contact, thèmes, phrases types de l'ordre du jour, points fixes, heure et lieu des réunions, titres des documents Word.
 - **Installer sur un téléphone** : ouvrir le site, puis menu du navigateur > « Ajouter à l'écran d'accueil ».
+- **E-mails aux salariés** (Brevo, gratuit jusqu'à 300 e-mails par jour) :
+  1. Brevo : valider un expéditeur, puis créer une **clé API** (*SMTP et API > Clés API*). Si Brevo bloque les adresses IP inconnues (*Sécurité > IP autorisées*), désactiver ce blocage : les envois partent des serveurs de Supabase.
+  2. Supabase : **Integrations > Vault > Add new secret**, nom `brevo_api_key`, valeur : la clé API. Elle reste chiffrée dans la base et n'apparaît jamais dans le code.
+  3. Appli, **Élus > E-mails aux salariés** : adresse d'expédition, puis « M'envoyer un e-mail de test ».
+
+  Les envois partent chaque minute depuis la base (extensions `pg_cron` et `pg_net`, activées par le script). Pour une base déjà installée : exécuter `supabase/migration_notifications.sql`.
 - **Mot de passe oublié** : le lien part par e-mail. Il faut donc un service d'envoi dans Supabase, dans **Authentication > Emails > SMTP Settings** (le SMTP de l'entreprise, ou un service gratuit comme Brevo). Sans service d'envoi : supprimer le compte dans **Authentication > Users**, l'élu se réinscrit et vous le revalidez.
 - **Mise en veille** : les projets Supabase gratuits se mettent en pause après 7 jours sans activité. Le workflow `keepalive.yml` appelle chaque espace tous les 3 jours pour l'éviter.
 
@@ -171,6 +178,7 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
 ├── supabase/
 │   ├── schema.sql              tables, règles d'accès, fonctions (à exécuter une fois)
 │   ├── migration_espaces.sql   mise à jour d'une base déjà installée (conserve les données)
+│   ├── migration_notifications.sql  mise à jour : e-mails aux salariés
 │   ├── demo.sql                transforme une base en démonstration (projet démo uniquement)
 │   └── reset.sql               remise à zéro avant réinstallation
 ├── public/

@@ -6,8 +6,9 @@ import {
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useApp } from '../../App'
-import { adminUpdateElu, dataSummary, exportData, importData, loadSample, tenant, wipeData, signupUrl, customTemplates, getSettings, listElus, removeTemplate, updateSettings, uploadTemplate } from '../../api'
+import { adminUpdateElu, notificationStatus, sendTestMail, dataSummary, exportData, importData, loadSample, tenant, wipeData, signupUrl, customTemplates, getSettings, listElus, removeTemplate, updateSettings, uploadTemplate } from '../../api'
 import { ErrorAlert, Section } from '../../components'
+import { appBaseUrl } from '../../tenant'
 
 export default function Accounts() {
   const { user, refreshConfig } = useApp()
@@ -95,6 +96,8 @@ export default function Accounts() {
       </Section>
 
       <SettingsCard onSaved={() => { refreshConfig(); setToast('Réglages enregistrés') }} />
+
+      <MailCard />
 
       <DataCard />
 
@@ -391,5 +394,71 @@ function DataRow({ title, text, children }) {
       </Box>
       {children}
     </Stack>
+  )
+}
+
+// E-mails envoyés aux salariés qui ont demandé à être prévenus (via Brevo)
+function MailCard() {
+  const [st, setSt] = useState(null)
+  const [form, setForm] = useState({ mail_from: '', app_url: '' })
+  const [error, setError] = useState(null)
+  const [done, setDone] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const load = () => notificationStatus().then((x) => {
+    setSt(x)
+    setForm({ mail_from: x.mail_from || '', app_url: x.app_url || appBaseUrl() })
+  }).catch((e) => setError(e.message))
+  useEffect(() => { load() }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setError(null); setDone(null)
+    try {
+      await updateSettings({ mail_from: form.mail_from.trim() || null, app_url: form.app_url.trim() || null })
+      await load(); setDone('Réglages des e-mails enregistrés.')
+    } catch (err) { setError(err.message) }
+  }
+  const test = async () => {
+    setError(null); setDone(null); setBusy(true)
+    try { setSt(await sendTestMail()); setDone('E-mail de test mis en file : il part dans la minute, à votre adresse de connexion.') } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+
+  const ready = st && st.ready_extensions && st.key_configured && st.mail_from
+  return (
+    <Section title="E-mails aux salariés">
+      <Card component="form" onSubmit={save}>
+        <CardContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: '70ch' }}>
+            Un salarié qui l’a demandé reçoit un e-mail quand vous lui répondez, quand vous lui écrivez (précisions attendues)
+            et quand sa demande est close. L’e-mail ne contient jamais la réponse : il invite à la lire dans AlloCSE.
+            Les envois partent dans la minute, via Brevo.
+          </Typography>
+          {st && (
+            <Alert severity={st.is_demo ? 'info' : ready ? 'success' : 'warning'} sx={{ mb: 2 }}>
+              {st.is_demo ? 'Démonstration : aucun e-mail n’est envoyé.'
+                : !st.ready_extensions ? 'Les extensions pg_net et pg_cron ne sont pas actives dans la base.'
+                : !st.key_configured ? <>La clé Brevo n’est pas encore enregistrée : dans Supabase, <strong>Integrations &gt; Vault &gt; Add new secret</strong>, nom <code>brevo_api_key</code>, valeur : une clé API Brevo (SMTP et API &gt; Clés API).</>
+                : !st.mail_from ? 'Indiquez l’adresse d’expédition ci-dessous.'
+                : <>Envois actifs. {st.subscribers} demande{st.subscribers > 1 ? 's' : ''} en cours avec suivi par e-mail, {st.sent_30d} e-mail{st.sent_30d > 1 ? 's' : ''} envoyé{st.sent_30d > 1 ? 's' : ''} ces 30 derniers jours{st.pending ? `, ${st.pending} en cours d’envoi` : ''}.</>}
+              {st.failed > 0 && <Box sx={{ mt: 0.5 }}>{st.failed} échec{st.failed > 1 ? 's' : ''} ce mois-ci. Dernière erreur : {st.last_error}</Box>}
+            </Alert>
+          )}
+          <Stack spacing={2}>
+            <TextField label="Adresse d’expédition" type="email" value={form.mail_from}
+              onChange={(e) => setForm({ ...form, mail_from: e.target.value })}
+              helperText="L’adresse validée comme expéditeur dans Brevo." />
+            <TextField label="Adresse de l’appli (lien « Voir ma demande »)" value={form.app_url}
+              onChange={(e) => setForm({ ...form, app_url: e.target.value })}
+              helperText="Normalement l’adresse de cet espace, déjà proposée." />
+          </Stack>
+          <ErrorAlert error={error} onClose={() => setError(null)} />
+          {done && <Alert severity="success" sx={{ mt: 2 }} onClose={() => setDone(null)}>{done}</Alert>}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
+            <Button type="submit" variant="contained">Enregistrer</Button>
+            <Button variant="outlined" onClick={test} disabled={busy || !ready}>M’envoyer un e-mail de test</Button>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Section>
   )
 }

@@ -288,6 +288,11 @@ export default function RequestDetail() {
                   {r.requester_email && <Link href={`mailto:${r.requester_email}`} variant="body2">{r.requester_email}</Link>}
                 </>
               )}
+              {r.notify && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Prévenu par e-mail de vos réponses, messages et de la clôture.
+                </Typography>
+              )}
               <Divider sx={{ my: 2 }} />
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>Visible par</Typography>
               <Typography variant="body2" color="text.secondary">

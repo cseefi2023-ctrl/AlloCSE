@@ -239,6 +239,11 @@ export const loadSample = () => rpc('admin_load_sample')
 export const exportData = () => rpc('admin_export_data')
 export const importData = (data, shift) => rpc('admin_import_data', { p: data, p_shift: Boolean(shift) })
 
+// ---------- E-mails aux salariés (administrateurs) ----------
+
+export const notificationStatus = () => rpc('admin_notification_status')
+export const sendTestMail = () => rpc('admin_send_test_mail')
+
 // ---------- Démonstration ----------
 
 export const DEMO_ACCOUNTS = [

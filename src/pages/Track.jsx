@@ -125,6 +125,7 @@ export default function Track() {
         {data.visible_to_all
           ? 'Visible par tous les élus du CSE.'
           : `Visible uniquement par : ${data.viewers.map((v) => v.full_name).join(', ')}.`}
+        {data.notify && ' Vous êtes prévenu par e-mail à chaque réponse ou question du CSE.'}
       </Typography>
     </Box>
   )
