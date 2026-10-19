@@ -95,9 +95,8 @@ export default function Submit() {
         <Collapse in={form.kind === 'signalement'}>
           <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Cette situation…</Typography>
           <RadioGroup value={form.temporality} onChange={set('temporality')} sx={{ mb: 2 }}>
-            <FormControlLabel value="actuel" control={<Radio />} label="existe déjà (ex. : la fontaine est balisée)" />
-            <FormControlLabel value="a_venir" control={<Radio />}
-              label="est annoncée ou se prépare (ex. : un travail le week-end prévu sans que le CSE soit prévenu)" />
+            <FormControlLabel value="actuel" control={<Radio />} label="existe déjà" />
+            <FormControlLabel value="a_venir" control={<Radio />} label="est annoncée ou se prépare" />
           </RadioGroup>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
             <TextField type="date" label={form.temporality === 'a_venir' ? 'À partir du' : 'Depuis le'} value={form.situation_start}
