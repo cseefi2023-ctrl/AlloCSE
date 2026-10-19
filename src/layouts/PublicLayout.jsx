@@ -4,6 +4,7 @@ import DarkModeIcon from '@mui/icons-material/DarkModeOutlined'
 import LightModeIcon from '@mui/icons-material/LightModeOutlined'
 import { useApp } from '../App'
 import { palette } from '../theme'
+import { tenant } from '../tenant'
 import { DemoBanner } from '../components'
 
 export function Logo({ to = '/', light = false }) {
@@ -20,6 +21,10 @@ export function Logo({ to = '/', light = false }) {
       <Typography component="span" sx={{ fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.01em' }}>
         AlloCSE
       </Typography>
+      {tenant.logo && <>
+        <Box aria-hidden sx={{ width: '1px', height: 28, bgcolor: light ? 'rgba(255,255,255,.4)' : 'divider', mx: 0.5 }} />
+        <Box component="img" src={tenant.logo} alt={tenant.name} sx={{ height: 34, width: 'auto', display: 'block' }} />
+      </>}
     </Link>
   )
 }

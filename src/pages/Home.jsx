@@ -5,6 +5,7 @@ import EditNoteIcon from '@mui/icons-material/EditNote'
 import CloseIcon from '@mui/icons-material/Close'
 import { myCodes, fmtDate } from '../api'
 import { mono, palette } from '../theme'
+import { tenant } from '../tenant'
 
 export default function Home() {
   const navigate = useNavigate()
@@ -18,7 +19,9 @@ export default function Home() {
 
   return (
     <>
-      <Box sx={{ pt: { xs: 3, sm: 6 }, pb: { xs: 4, sm: 5 } }}>
+      <Box sx={{ pt: { xs: 3, sm: 6 }, pb: { xs: 4, sm: 5 }, display: 'flex', gap: 4, alignItems: 'center',
+        flexDirection: { xs: 'column-reverse', sm: 'row' } }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="h1" sx={{ maxWidth: '16ch' }}>
           Une question, un souci&nbsp;? Le CSE vous répond.
         </Typography>
@@ -26,6 +29,11 @@ export default function Home() {
           Écrivez à vos élus, choisissez qui peut lire votre message, puis suivez son traitement
           jusqu’à la réponse avec votre numéro de suivi.
         </Typography>
+        </Box>
+        {tenant.logo && (
+          <Box component="img" src={tenant.logo} alt={tenant.name}
+            sx={{ display: { xs: 'none', sm: 'block' }, width: 200, height: 'auto', flexShrink: 0 }} />
+        )}
       </Box>
 
       <Box sx={{ mb: 5, maxWidth: 560 }}>

@@ -37,6 +37,7 @@ export const tenant = {
   known: Boolean(entry),
   configured: isConfigured(entry),
   demo: Boolean(entry?.demo),
+  logo: entry?.logo || null, // logo du CSE (chemin dans public/, ex. logos/cse-efi.png)
 }
 
 if (tenant.known) safeSet(LAST_KEY, key)

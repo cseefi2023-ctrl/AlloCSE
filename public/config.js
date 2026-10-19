@@ -23,6 +23,7 @@ window.ALLOCSE_CONFIG = {
     },
     efi: {
       name: 'CSE EFI Automotive',
+      logo: 'logos/cse-efi.png',
       supabaseUrl: 'https://tpgpuxrwlvdtllvrocsw.supabase.co',
       supabaseAnonKey: 'sb_publishable_uXJu3vU1IFKlZmbofZ6gNA_6AxHEj-j',
     },
