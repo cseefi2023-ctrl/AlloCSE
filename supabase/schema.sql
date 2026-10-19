@@ -1,5 +1,5 @@
 -- =============================================================================
---  AlloCSE — schéma Supabase (version 2 : sujets, préparation, récurrents, Gantt, Word)
+--  AlloCSE — schéma Supabase (version 3 : sujets du CSE, demandes, réunions, Gantt, Word, e-mails)
 --  À exécuter UNE FOIS dans Supabase : SQL Editor > New query > coller > Run.
 --  (Base déjà créée avec une version précédente : exécuter d'abord reset.sql.)
 --
@@ -76,6 +76,59 @@ create table public.elus (
   created_at   timestamptz not null default now()
 );
 
+-- Sujet du CSE : ce que les élus suivent et portent devant la direction.
+-- Il regroupe des demandes de salariés (zéro, une ou plusieurs) et vit sa propre vie :
+-- passages à l'ordre du jour, engagements de la direction, notes, historique.
+create table public.subjects (
+  id              bigint generated always as identity primary key,
+  number          text not null unique,                 -- S-2026-001
+  title           text not null check (char_length(title) between 3 and 200),
+  description     text check (char_length(description) <= 10000),
+  category        text not null,
+  kind            text not null default 'demande' check (kind in ('demande', 'signalement')),  -- question / alerte
+  temporality     text check (temporality in ('actuel', 'a_venir')),
+  situation_start date,
+  situation_end   date,
+  status          text not null default 'ouvert' check (status in ('ouvert', 'inscrit_odj', 'repondu', 'clos')),
+  priority        text not null default 'normale' check (priority in ('basse', 'normale', 'haute')),
+  assignee_id     uuid references public.elus (id) on delete set null,
+  due_date        date,
+  visible_to_all  boolean not null default true,
+  created_by      uuid references public.elus (id) on delete set null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  check (situation_end is null or situation_start is null or situation_end >= situation_start)
+);
+create index subjects_status_idx on public.subjects (status);
+
+-- Sujet à accès restreint (créé à partir d'une demande restreinte, ou par choix des élus)
+create table public.subject_viewers (
+  subject_id  bigint not null references public.subjects (id) on delete cascade,
+  elu_id      uuid not null references public.elus (id) on delete cascade,
+  primary key (subject_id, elu_id)
+);
+
+-- Notes internes des élus sur un sujet
+create table public.subject_notes (
+  id          bigint generated always as identity primary key,
+  subject_id  bigint not null references public.subjects (id) on delete cascade,
+  author_id   uuid references public.elus (id) on delete set null,
+  body        text not null check (char_length(body) between 1 and 10000),
+  is_answer   boolean not null default false,   -- réponse transmise aux salariés du sujet
+  created_at  timestamptz not null default now()
+);
+create index subject_notes_subject_idx on public.subject_notes (subject_id);
+
+-- Historique du sujet (interne aux élus)
+create table public.subject_events (
+  id          bigint generated always as identity primary key,
+  subject_id  bigint not null references public.subjects (id) on delete cascade,
+  label       text not null,
+  elu_id      uuid references public.elus (id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+create index subject_events_subject_idx on public.subject_events (subject_id);
+
 create table public.requests (
   id                bigint generated always as identity primary key,
   tracking_code     text not null unique,
@@ -96,19 +149,14 @@ create table public.requests (
   visible_to_all    boolean not null default true,
   assignee_id       uuid references public.elus (id) on delete set null,
   due_date          date,                         -- échéance fixée par les élus
-  -- Tri : numéro de sujet attribué quand la demande devient un sujet,
-  -- ou rattachement à un sujet existant (elle prend alors le numéro de celui-ci)
-  subject_number    text unique,
-  parent_id         bigint references public.requests (id) on delete set null,
-  -- Saisie par un salarié (formulaire public) ou par un élu (question préparée par le CSE)
-  origin            text not null default 'salarie' check (origin in ('salarie', 'elu')),
-  created_by        uuid references public.elus (id) on delete set null,
+  -- Sujet du CSE auquel la demande est rattachée (aucun : réponse directe ou à trier)
+  subject_id        bigint references public.subjects (id) on delete set null,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   check (situation_end is null or situation_start is null or situation_end >= situation_start)
 );
 create index requests_status_idx on public.requests (status);
-create index requests_parent_idx on public.requests (parent_id);
+create index requests_subject_idx on public.requests (subject_id);
 
 -- Élus autorisés par le demandeur quand visible_to_all = false
 create table public.request_viewers (
@@ -141,20 +189,20 @@ create table public.events (
 );
 create index events_request_idx on public.events (request_id);
 
--- Engagements de la direction : réponse avec un délai, suivie jusqu'à ce qu'elle soit tenue
+-- Engagements de la direction sur un sujet : réponse avec un délai, suivie jusqu'à ce qu'elle soit tenue
 create table public.commitments (
   id          bigint generated always as identity primary key,
-  request_id  bigint not null references public.requests (id) on delete cascade,
+  subject_id  bigint not null references public.subjects (id) on delete cascade,
   text        text not null check (char_length(text) between 3 and 2000),
   due_date    date not null,
   status      text not null default 'en_attente' check (status in ('en_attente', 'tenu', 'non_tenu')),
   meeting_id  bigint,                               -- réunion où l'engagement a été pris (facultatif)
-  public      boolean not null default true,        -- visible par le salarié
+  public      boolean not null default true,        -- visible par les salariés du sujet
   created_by  uuid references public.elus (id) on delete set null,
   created_at  timestamptz not null default now(),
   closed_at   timestamptz
 );
-create index commitments_request_idx on public.commitments (request_id);
+create index commitments_subject_idx on public.commitments (subject_id);
 
 -- Adresse où prévenir le salarié : table à part, illisible depuis l'appli (même par les élus),
 -- pour qu'une demande anonyme le reste
@@ -182,7 +230,6 @@ create table public.notifications (
 -- Une seule notification en attente par demande : les événements rapprochés partent dans un seul e-mail
 create unique index notifications_pending_idx on public.notifications (request_id)
   where state = 'en_attente' and request_id is not null;
-
 
 create table public.meetings (
   id            bigint generated always as identity primary key,
@@ -213,17 +260,17 @@ create table public.recurring_points (
 create table public.agenda_items (
   id           bigint generated always as identity primary key,
   meeting_id   bigint not null references public.meetings (id) on delete cascade,
-  request_id   bigint references public.requests (id) on delete set null,
+  subject_id   bigint references public.subjects (id) on delete set null,
   title        text check (char_length(title) <= 200),   -- uniquement pour un point libre
   wording      text,                                     -- formulation à l'ordre du jour
   position     int not null default 0,
   outcome      text,                                     -- relevé de décision
   discussed    boolean not null default false,
   recurring_id bigint references public.recurring_points (id) on delete set null,
-  unique (meeting_id, request_id)
+  unique (meeting_id, subject_id)
 );
 create index agenda_items_meeting_idx on public.agenda_items (meeting_id);
-create index agenda_items_request_idx on public.agenda_items (request_id);
+create index agenda_items_subject_idx on public.agenda_items (subject_id);
 
 -- -----------------------------------------------------------------------------
 --  Droits : fonctions d'aide
@@ -249,6 +296,15 @@ language sql stable security definer set search_path = public as $$
            or exists (select 1 from request_viewers v where v.request_id = r.id and v.elu_id = auth.uid())))
 $$;
 
+create function public.can_see_subject(sid bigint) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.is_active_elu() and exists (
+    select 1 from subjects s
+    where s.id = sid
+      and (s.visible_to_all
+           or exists (select 1 from subject_viewers v where v.subject_id = s.id and v.elu_id = auth.uid())))
+$$;
+
 create function private.require_elu() returns void
 language plpgsql stable security definer set search_path = public as $$
 begin
@@ -270,6 +326,18 @@ begin
   return r;
 end $$;
 
+create function private.require_subject(sid bigint) returns public.subjects
+language plpgsql stable security definer set search_path = public as $$
+declare s public.subjects;
+begin
+  perform private.require_elu();
+  if sid is null or not public.can_see_subject(sid) then
+    raise exception 'Sujet introuvable.' using errcode = 'P0002';
+  end if;
+  select * into s from subjects where id = sid;
+  return s;
+end $$;
+
 -- -----------------------------------------------------------------------------
 --  Utilitaires
 -- -----------------------------------------------------------------------------
@@ -281,6 +349,14 @@ create function private.status_label(s text) returns text language sql immutable
     when 'inscrite_odj' then 'Inscrite à l''ordre du jour'
     when 'repondue' then 'Réponse apportée'
     when 'close' then 'Clôturée' end
+$$;
+
+create function private.subject_status_label(s text) returns text language sql immutable as $$
+  select case s
+    when 'ouvert' then 'En cours'
+    when 'inscrit_odj' then 'Inscrit à l''ordre du jour'
+    when 'repondu' then 'Réponse apportée'
+    when 'clos' then 'Clos' end
 $$;
 
 create function private.fr_date(d date) returns text language sql immutable as $$
@@ -301,6 +377,12 @@ language sql security definer set search_path = public as $$
   insert into events (request_id, label, public, elu_id) values (rid, lbl, is_public, auth.uid());
 $$;
 
+create function private.subject_event(sid bigint, lbl text) returns void
+language sql security definer set search_path = public as $$
+  insert into subject_events (subject_id, label, elu_id) values (sid, lbl, auth.uid());
+  update subjects set updated_at = now() where id = sid;
+$$;
+
 create function private.set_status(rid bigint, new_status text) returns void
 language plpgsql security definer set search_path = public as $$
 declare old_status text;
@@ -312,88 +394,95 @@ begin
   end if;
 end $$;
 
--- Les demandes associées suivent le statut de leur sujet
-create function private.propagate_status(rid bigint, new_status text) returns void
+-- Statut d'un sujet ; les demandes encore ouvertes qui y sont rattachées suivent
+create function private.set_subject_status(sid bigint, new_status text) returns void
 language plpgsql security definer set search_path = public as $$
-declare c bigint;
+declare old_status text; c record; target text;
 begin
-  for c in select id from requests where parent_id = rid order by id loop
-    perform private.set_status(c, new_status);
+  select status into old_status from subjects where id = sid for update;
+  if old_status is not distinct from new_status then return; end if;
+  update subjects set status = new_status, updated_at = now() where id = sid;
+  perform private.subject_event(sid, 'Statut : ' || private.subject_status_label(new_status));
+  target := case new_status when 'ouvert' then 'en_cours' when 'inscrit_odj' then 'inscrite_odj'
+                            when 'clos' then 'close' end;
+  if target is null then return; end if;  -- « répondu » : chaque demande reçoit la réponse elle-même
+  for c in select id, status from requests where subject_id = sid order by id loop
+    if c.status <> 'close' or new_status = 'ouvert' then
+      perform private.set_status(c.id, target);
+    end if;
   end loop;
 end $$;
 
-create function private.subject_number_of(r public.requests) returns text
-language sql stable security definer set search_path = public as $$
-  select case when r.parent_id is null then r.subject_number
-              else (select p.subject_number from requests p where p.id = r.parent_id) end
-$$;
-
--- Attribue un numéro de sujet (S-2026-001) à une demande qui devient un sujet
-create function private.assign_number(rid bigint) returns text
+-- Numéro de sujet : S-2026-001
+create function private.new_subject_number() returns text
 language plpgsql security definer set search_path = public as $$
-declare
-  cur text;
-  prefix text;
-  last int;
+declare prefix text; last int;
 begin
-  select subject_number into cur from requests where id = rid;
-  if cur is not null then return cur; end if;
   perform pg_advisory_xact_lock(4243);
   select subject_prefix || '-' || extract(year from private.today())::int || '-' into prefix
   from settings where id = 1;
-  select coalesce(max(substr(subject_number, length(prefix) + 1)::int), 0) into last
-  from requests where subject_number like prefix || '%' and substr(subject_number, length(prefix) + 1) ~ '^\d+$';
-  cur := prefix || lpad((last + 1)::text, 3, '0');
-  update requests set subject_number = cur where id = rid;
-  perform private.add_event(rid, 'Sujet n° ' || cur);
-  return cur;
-end $$;
-
--- Transmet une réponse officielle aux salariés des demandes associées au sujet
-create function private.answer_linked(rid bigint, body text, do_close boolean default false) returns void
-language plpgsql security definer set search_path = public as $$
-declare c record; num text;
-begin
-  select subject_number into num from requests where id = rid;
-  for c in select id from requests where parent_id = rid and status <> 'close' order by id loop
-    insert into messages (request_id, author_type, author_id, body, is_answer)
-    values (c.id, 'elu', auth.uid(), body, true);
-    perform private.add_event(c.id, 'Réponse du CSE sur le sujet n° ' || coalesce(num, '?'));
-    perform private.set_status(c.id, case when do_close then 'close' else 'repondue' end);
-    update requests set updated_at = now() where id = c.id;
-  end loop;
+  select coalesce(max(substr(number, length(prefix) + 1)::int), 0) into last
+  from subjects where number like prefix || '%' and substr(number, length(prefix) + 1) ~ '^\d+$';
+  return prefix || lpad((last + 1)::text, 3, '0');
 end $$;
 
 -- « depuis le 12/09/2026 », « du 12/09/2026 au 30/09/2026 »… ou '' si inconnue
-create function private.period_label(r public.requests) returns text language sql immutable as $$
+create function private.period_text(temporality text, s_start date, s_end date) returns text
+language sql immutable as $$
   select case
-    when r.situation_start is not null and r.situation_end is not null
-      then 'du ' || private.fr_date(r.situation_start) || ' au ' || private.fr_date(r.situation_end)
-    when r.situation_start is not null and r.temporality = 'a_venir'
-      then 'à partir du ' || private.fr_date(r.situation_start)
-    when r.situation_start is not null then 'depuis le ' || private.fr_date(r.situation_start)
-    when r.situation_end is not null then 'jusqu’au ' || private.fr_date(r.situation_end)
+    when s_start is not null and s_end is not null
+      then 'du ' || private.fr_date(s_start) || ' au ' || private.fr_date(s_end)
+    when s_start is not null and temporality = 'a_venir' then 'à partir du ' || private.fr_date(s_start)
+    when s_start is not null then 'depuis le ' || private.fr_date(s_start)
+    when s_end is not null then 'jusqu’au ' || private.fr_date(s_end)
     else '' end
 $$;
 
--- Formulation proposée pour inscrire la demande à l'ordre du jour.
--- N'utilise que le sujet et la catégorie : jamais l'identité du demandeur.
-create function private.suggest_wording(r public.requests) returns text
+create function private.period_label(r public.requests) returns text language sql immutable as $$
+  select private.period_text(r.temporality, r.situation_start, r.situation_end)
+$$;
+
+-- Formulation proposée pour inscrire le sujet à l'ordre du jour : jamais l'identité d'un demandeur
+create function private.suggest_wording(s public.subjects) returns text
 language plpgsql stable security definer set search_path = public as $$
 declare tpl text; per text;
 begin
-  select odj_wordings ->> (case when r.kind = 'signalement'
-                                then case when r.temporality = 'a_venir' then 'signalement_a_venir'
+  select odj_wordings ->> (case when s.kind = 'signalement'
+                                then case when s.temporality = 'a_venir' then 'signalement_a_venir'
                                           else 'signalement_actuel' end
                                 else 'demande' end)
   into tpl from settings where id = 1;
-  per := private.period_label(r);
+  per := private.period_text(s.temporality, s.situation_start, s.situation_end);
   tpl := coalesce(tpl, '{sujet}');
-  tpl := replace(tpl, '{sujet}', regexp_replace(trim(r.subject), '\.+$', ''));
-  tpl := replace(tpl, '{categorie}', r.category);
-  tpl := replace(tpl, '{code}', r.tracking_code);
+  tpl := replace(tpl, '{sujet}', regexp_replace(trim(s.title), '\.+$', ''));
+  tpl := replace(tpl, '{categorie}', s.category);
+  tpl := replace(tpl, '{code}', s.number);
   tpl := replace(tpl, '{periode}', case when per = '' then '' else ' ' || per end);
   return trim(regexp_replace(tpl, '\{[a-z_]+\}', '', 'g'));
+end $$;
+
+-- Réponse officielle du CSE sur un sujet : chaque salarié concerné la reçoit sur sa demande
+create function private.answer_subject(sid bigint, body text, do_close boolean default false) returns int
+language plpgsql security definer set search_path = public as $$
+declare c record; num text; n int := 0;
+begin
+  select number into num from subjects where id = sid;
+  insert into subject_notes (subject_id, author_id, body, is_answer) values (sid, auth.uid(), body, true);
+  for c in select id from requests where subject_id = sid and status <> 'close' order by id loop
+    insert into messages (request_id, author_type, author_id, body, is_answer)
+    values (c.id, 'elu', auth.uid(), body, true);
+    perform private.add_event(c.id, 'Réponse du CSE sur le sujet n° ' || num);
+    perform private.set_status(c.id, case when do_close then 'close' else 'repondue' end);
+    update requests set updated_at = now() where id = c.id;
+    n := n + 1;
+  end loop;
+  if do_close then
+    perform private.set_subject_status(sid, 'clos');
+  else
+    perform private.set_subject_status(sid, 'repondu');
+  end if;
+  perform private.subject_event(sid, 'Réponse transmise à ' || n || ' salarié' || case when n > 1 then 's' else '' end);
+  return n;
 end $$;
 
 -- Numéro de suivi non devinable, ex. AC-2026-7KQ4-X9M2 (~40 bits d'aléa).
@@ -432,7 +521,7 @@ begin
   return c;
 end $$;
 
-create function private.touch_updated_at() returns trigger language plpgsql as $$
+create function private.touch_updated_at() returns trigger language plpgsql set search_path = public as $$
 begin
   -- Une date fixée explicitement (import, exemple) est conservée
   if new.updated_at is not distinct from old.updated_at then
@@ -441,6 +530,8 @@ begin
   return new;
 end $$;
 create trigger requests_updated_at before update on public.requests
+  for each row execute function private.touch_updated_at();
+create trigger subjects_updated_at before update on public.subjects
   for each row execute function private.touch_updated_at();
 
 -- Chaque compte créé (inscription) devient une fiche élu « en attente ».
@@ -465,12 +556,24 @@ create trigger on_auth_user_created after insert on auth.users
   for each row execute function private.handle_new_user();
 
 -- -----------------------------------------------------------------------------
---  Représentations JSON (mêmes formes que l'API de la version serveur)
+--  Représentations JSON
 -- -----------------------------------------------------------------------------
 
 create function private.elu_json(uid uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object('id', e.id, 'full_name', e.full_name, 'mandate', e.mandate) from elus e where e.id = uid
+$$;
+
+-- Référence au sujet d'une demande ; un sujet que l'élu ne peut pas voir n'est désigné que par son numéro
+create function private.subject_ref(sid bigint) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when s.id is null then null
+              when public.can_see_subject(s.id)
+                then jsonb_build_object('id', s.id, 'number', s.number, 'title', s.title, 'status', s.status,
+                                        'restricted', false)
+              else jsonb_build_object('id', null, 'number', s.number, 'title', null, 'status', s.status,
+                                      'restricted', true) end
+  from (select sid as wanted) w left join subjects s on s.id = w.wanted
 $$;
 
 create function private.request_summary(r public.requests) returns jsonb
@@ -481,9 +584,26 @@ language sql stable security definer set search_path = public as $$
     'category', r.category, 'subject', r.subject, 'status', r.status, 'priority', r.priority,
     'anonymous', r.anonymous, 'requester_name', r.requester_name, 'visible_to_all', r.visible_to_all,
     'assignee', private.elu_json(r.assignee_id), 'due_date', r.due_date,
-    'number', private.subject_number_of(r), 'parent_id', r.parent_id, 'origin', r.origin,
-    'linked_count', (select count(*) from requests c where c.parent_id = r.id),
+    'subject_ref', private.subject_ref(r.subject_id),
     'created_at', r.created_at, 'updated_at', r.updated_at)
+$$;
+
+create function private.subject_summary(s public.subjects) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', s.id, 'number', s.number, 'title', s.title, 'kind', s.kind, 'temporality', s.temporality,
+    'situation_start', s.situation_start, 'situation_end', s.situation_end, 'category', s.category,
+    'status', s.status, 'priority', s.priority, 'assignee', private.elu_json(s.assignee_id),
+    'due_date', s.due_date, 'visible_to_all', s.visible_to_all, 'created_by', private.elu_json(s.created_by),
+    'request_count', (select count(*) from requests r where r.subject_id = s.id),
+    'first_request_at', (select min(r.created_at) from requests r where r.subject_id = s.id),
+    'next_meeting', (select jsonb_build_object('id', m.id, 'title', m.title, 'meeting_date', m.meeting_date)
+                     from agenda_items a join meetings m on m.id = a.meeting_id
+                     where a.subject_id = s.id and m.status = 'planifiee' order by m.meeting_date limit 1),
+    'commitments_pending', (select count(*) from commitments c where c.subject_id = s.id and c.status = 'en_attente'),
+    'commitments_late', (select count(*) from commitments c where c.subject_id = s.id and c.status = 'en_attente'
+                         and c.due_date < private.today()),
+    'created_at', s.created_at, 'updated_at', s.updated_at)
 $$;
 
 create function private.meeting_summary(m public.meetings) returns jsonb
@@ -495,7 +615,7 @@ $$;
 
 create function private.commitment_json(c public.commitments) returns jsonb
 language sql stable security definer set search_path = public as $$
-  select jsonb_build_object('id', c.id, 'request_id', c.request_id, 'text', c.text, 'due_date', c.due_date,
+  select jsonb_build_object('id', c.id, 'subject_id', c.subject_id, 'text', c.text, 'due_date', c.due_date,
     'status', c.status, 'public', c.public, 'created_at', c.created_at, 'closed_at', c.closed_at,
     'late', c.status = 'en_attente' and c.due_date < private.today(),
     'meeting', (select jsonb_build_object('id', m.id, 'title', m.title, 'meeting_date', m.meeting_date)
@@ -503,33 +623,37 @@ language sql stable security definer set search_path = public as $$
     'created_by', private.elu_json(c.created_by))
 $$;
 
--- Engagements d'un sujet : ceux de la demande et, pour une demande associée, ceux de son sujet
-create function private.commitments_of(rid bigint, only_public boolean default false) returns jsonb
+create function private.commitments_of(sid bigint, only_public boolean default false) returns jsonb
 language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(private.commitment_json(c) order by c.due_date, c.id), '[]'::jsonb)
   from commitments c
-  where (c.request_id = rid or c.request_id = (select parent_id from requests where id = rid))
-    and (not only_public or c.public)
+  where sid is not null and c.subject_id = sid and (not only_public or c.public)
+$$;
+
+-- Passages d'un sujet en réunion
+create function private.subject_agenda(sid bigint) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'item_id', a.id, 'meeting_id', mt.id, 'meeting_title', mt.title, 'meeting_date', mt.meeting_date,
+           'meeting_status', mt.status, 'discussed', a.discussed, 'outcome', a.outcome) order by mt.meeting_date), '[]'::jsonb)
+  from agenda_items a join meetings mt on mt.id = a.meeting_id
+  where sid is not null and a.subject_id = sid
 $$;
 
 create function private.request_detail(rid bigint) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare r requests; p requests;
+declare r requests; subj_visible boolean;
 begin
   r := private.require_visible(rid);
-  select * into p from requests where id = r.parent_id;
+  subj_visible := r.subject_id is not null and public.can_see_subject(r.subject_id);
   return private.request_summary(r) || jsonb_build_object(
-    'parent', case when p.id is not null and public.can_see_request(p.id) then private.request_summary(p) end,
-    'linked', coalesce((select jsonb_agg(private.request_summary(c) order by c.id)
-                        from requests c where c.parent_id = r.id and public.can_see_request(c.id)), '[]'::jsonb),
-    'linked_hidden', (select count(*) from requests c where c.parent_id = r.id and not public.can_see_request(c.id)),
     'description', r.description,
-    'created_by', private.elu_json(r.created_by),
-    'commitments', private.commitments_of(r.id),
     -- Anonyme : aucune donnée d'identité
     'requester_email', case when r.anonymous then null else r.requester_email end,
     'requester_service', r.requester_service,
     'notify', exists (select 1 from request_notify n where n.request_id = r.id),
+    'commitments', case when subj_visible then private.commitments_of(r.subject_id) else '[]'::jsonb end,
+    'agenda', case when subj_visible then private.subject_agenda(r.subject_id) else '[]'::jsonb end,
     'viewers', coalesce((select jsonb_agg(private.elu_json(v.elu_id) order by e.full_name)
                          from request_viewers v join elus e on e.id = v.elu_id where v.request_id = r.id), '[]'::jsonb),
     'messages', coalesce((select jsonb_agg(jsonb_build_object(
@@ -540,11 +664,29 @@ begin
     'events', coalesce((select jsonb_agg(jsonb_build_object(
                           'id', ev.id, 'label', ev.label, 'public', ev.public, 'created_at', ev.created_at,
                           'user', private.elu_json(ev.elu_id)) order by ev.created_at, ev.id)
-                        from events ev where ev.request_id = r.id), '[]'::jsonb),
-    'agenda', coalesce((select jsonb_agg(jsonb_build_object(
-                          'meeting_id', mt.id, 'meeting_title', mt.title, 'meeting_date', mt.meeting_date,
-                          'discussed', a.discussed, 'outcome', a.outcome) order by mt.meeting_date)
-                        from agenda_items a join meetings mt on mt.id = a.meeting_id where a.request_id = r.id), '[]'::jsonb));
+                        from events ev where ev.request_id = r.id), '[]'::jsonb));
+end $$;
+
+create function private.subject_detail(sid bigint) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare s subjects;
+begin
+  s := private.require_subject(sid);
+  return private.subject_summary(s) || jsonb_build_object(
+    'description', s.description,
+    'viewers', coalesce((select jsonb_agg(private.elu_json(v.elu_id) order by e.full_name)
+                         from subject_viewers v join elus e on e.id = v.elu_id where v.subject_id = s.id), '[]'::jsonb),
+    'requests', coalesce((select jsonb_agg(private.request_summary(r) order by r.created_at, r.id)
+                          from requests r where r.subject_id = s.id and public.can_see_request(r.id)), '[]'::jsonb),
+    'requests_hidden', (select count(*) from requests r where r.subject_id = s.id and not public.can_see_request(r.id)),
+    'notes', coalesce((select jsonb_agg(jsonb_build_object('id', n.id, 'author', private.elu_json(n.author_id),
+                         'body', n.body, 'is_answer', n.is_answer, 'created_at', n.created_at) order by n.created_at, n.id)
+                       from subject_notes n where n.subject_id = s.id), '[]'::jsonb),
+    'events', coalesce((select jsonb_agg(jsonb_build_object('id', ev.id, 'label', ev.label,
+                          'user', private.elu_json(ev.elu_id), 'created_at', ev.created_at) order by ev.created_at, ev.id)
+                        from subject_events ev where ev.subject_id = s.id), '[]'::jsonb),
+    'agenda', private.subject_agenda(s.id),
+    'commitments', private.commitments_of(s.id));
 end $$;
 
 create function private.recurrence_json(rp_id bigint) returns jsonb
@@ -556,28 +698,28 @@ $$;
 
 create function private.item_json(a public.agenda_items) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare r requests;
+declare s subjects;
 begin
-  if a.request_id is not null then
-    select * into r from requests where id = a.request_id;
-    if not public.can_see_request(r.id) then
+  if a.subject_id is not null then
+    select * into s from subjects where id = a.subject_id;
+    if not public.can_see_subject(s.id) then
       -- L'élu voit qu'un point existe, jamais son contenu
       return jsonb_build_object('id', a.id, 'position', a.position, 'restricted', true,
-        'title', 'Point à accès restreint (choix du demandeur)', 'request_id', null, 'tracking_code', null,
-        'kind', null, 'temporality', null, 'category', null, 'status', null, 'number', null,
-        'linked_count', 0, 'recurring', false, 'recurrence', null, 'wording', null,
+        'title', 'Point à accès restreint', 'subject_id', null, 'number', null,
+        'kind', null, 'temporality', null, 'category', null, 'status', null,
+        'request_count', 0, 'recurring', false, 'recurrence', null, 'wording', null,
         'suggested_wording', null, 'outcome', null, 'discussed', a.discussed);
     end if;
-    return jsonb_build_object('id', a.id, 'position', a.position, 'restricted', false, 'title', r.subject,
-      'request_id', r.id, 'tracking_code', r.tracking_code, 'kind', r.kind, 'temporality', r.temporality,
-      'category', r.category, 'status', r.status, 'number', private.subject_number_of(r),
-      'linked_count', (select count(*) from requests c where c.parent_id = r.id),
+    return jsonb_build_object('id', a.id, 'position', a.position, 'restricted', false, 'title', s.title,
+      'subject_id', s.id, 'number', s.number, 'kind', s.kind, 'temporality', s.temporality,
+      'category', s.category, 'status', s.status,
+      'request_count', (select count(*) from requests r where r.subject_id = s.id),
       'recurring', false, 'recurrence', null, 'wording', a.wording,
-      'suggested_wording', private.suggest_wording(r), 'outcome', a.outcome, 'discussed', a.discussed);
+      'suggested_wording', private.suggest_wording(s), 'outcome', a.outcome, 'discussed', a.discussed);
   end if;
   return jsonb_build_object('id', a.id, 'position', a.position, 'restricted', false, 'title', a.title,
-    'request_id', null, 'tracking_code', null, 'kind', null, 'temporality', null, 'category', null,
-    'status', null, 'number', null, 'linked_count', 0,
+    'subject_id', null, 'number', null, 'kind', null, 'temporality', null, 'category', null,
+    'status', null, 'request_count', 0,
     'recurring', a.recurring_id is not null, 'recurrence', private.recurrence_json(a.recurring_id),
     'wording', a.wording, 'suggested_wording', null, 'outcome', a.outcome, 'discussed', a.discussed);
 end $$;
@@ -600,6 +742,10 @@ end $$;
 
 alter table public.settings         enable row level security;
 alter table public.elus             enable row level security;
+alter table public.subjects         enable row level security;
+alter table public.subject_viewers  enable row level security;
+alter table public.subject_notes    enable row level security;
+alter table public.subject_events   enable row level security;
 alter table public.requests         enable row level security;
 alter table public.request_viewers  enable row level security;
 alter table public.messages         enable row level security;
@@ -627,14 +773,12 @@ create policy messages_read on public.messages for select to authenticated
 create policy events_read on public.events for select to authenticated
   using (public.can_see_request(request_id));
 create policy meetings_read on public.meetings for select to authenticated using (public.is_active_elu());
-create policy commitments_read on public.commitments for select to authenticated
-  using (public.can_see_request(request_id));
--- agenda_items, recurring_points : aucune politique, accès uniquement via les fonctions
--- (les points à accès restreint y sont masqués). Écritures : uniquement via les fonctions.
+-- Sujets, notes, engagements, ordre du jour, points récurrents : aucune politique,
+-- accès uniquement via les fonctions (qui masquent les sujets à accès restreint).
 
 revoke all on all tables in schema public from anon, authenticated;
 grant select on public.settings, public.elus, public.requests, public.request_viewers, public.messages,
-  public.events, public.meetings, public.commitments to authenticated;
+  public.events, public.meetings to authenticated;
 grant update (organisation, contact, categories, odj_weights, odj_wordings, odj_fixed_points, word_settings,
   mail_from, app_url) on public.settings to authenticated;
 
@@ -666,7 +810,7 @@ language sql stable security definer set search_path = public as $$
                          from request_viewers v join elus e on e.id = v.elu_id where v.request_id = r.id), '[]'::jsonb),
     'commitments', coalesce((select jsonb_agg(jsonb_build_object('text', x ->> 'text', 'due_date', x -> 'due_date',
                                                                  'status', x ->> 'status') order by x ->> 'due_date')
-                             from jsonb_array_elements(private.commitments_of(r.id, true)) x), '[]'::jsonb),
+                             from jsonb_array_elements(private.commitments_of(r.subject_id, true)) x), '[]'::jsonb),
     -- Le salarié ne voit ni les notes internes ni les événements internes
     'events', coalesce((select jsonb_agg(jsonb_build_object('id', ev.id, 'label', ev.label, 'public', true,
                                                             'created_at', ev.created_at) order by ev.created_at, ev.id)
@@ -801,10 +945,10 @@ begin
 end $$;
 
 -- -----------------------------------------------------------------------------
---  Élus — demandes
+--  Élus — demandes des salariés
 -- -----------------------------------------------------------------------------
 
--- Filtres : { status: [..], kind, q, mine, open_only, to_triage }. Droits de l'élu (RLS).
+-- Filtres : { status: [..], kind, q, mine, open_only, to_triage, subject_id }. Droits de l'élu (RLS).
 create function public.search_requests(p jsonb default '{}') returns jsonb
 language sql stable security invoker set search_path = public as $$
   select coalesce(jsonb_agg(private.request_summary(r) order by r.updated_at desc, r.id desc), '[]'::jsonb)
@@ -813,14 +957,14 @@ language sql stable security invoker set search_path = public as $$
     where (p -> 'status' is null or jsonb_typeof(p -> 'status') <> 'array' or jsonb_array_length(p -> 'status') = 0
            or r.status in (select jsonb_array_elements_text(p -> 'status')))
       and (not coalesce((p ->> 'open_only')::boolean, false) or r.status <> 'close')
-      and (not coalesce((p ->> 'to_triage')::boolean, false)
-           or (r.subject_number is null and r.parent_id is null and r.status <> 'close'))
+      -- À trier : ni sujet, ni réponse, ni prise en charge
+      and (not coalesce((p ->> 'to_triage')::boolean, false) or (r.subject_id is null and r.status = 'nouvelle'))
+      and (not coalesce((p ->> 'without_subject')::boolean, false) or r.subject_id is null)
       and (nullif(p ->> 'kind', '') is null or r.kind = p ->> 'kind')
       and (not coalesce((p ->> 'mine')::boolean, false) or r.assignee_id = auth.uid())
       and (nullif(trim(p ->> 'q'), '') is null or
            r.subject ilike '%' || trim(p ->> 'q') || '%' or r.description ilike '%' || trim(p ->> 'q') || '%' or
-           r.tracking_code ilike '%' || trim(p ->> 'q') || '%' or r.category ilike '%' || trim(p ->> 'q') || '%' or
-           coalesce(r.subject_number, '') ilike '%' || trim(p ->> 'q') || '%')
+           r.tracking_code ilike '%' || trim(p ->> 'q') || '%' or r.category ilike '%' || trim(p ->> 'q') || '%')
     order by r.updated_at desc, r.id desc
     limit 500
   ) r
@@ -839,18 +983,21 @@ begin
   select * into nxt from meetings where status = 'planifiee' and meeting_date >= private.today()
   order by meeting_date limit 1;
   return jsonb_build_object(
-    'by_status', (select jsonb_object_agg(s, (select count(*) from requests r
-                                              where r.status = s and public.can_see_request(r.id)))
-                  from unnest(array['nouvelle', 'en_cours', 'inscrite_odj', 'repondue', 'close']) s),
+    'by_status', (select jsonb_object_agg(st, (select count(*) from requests r
+                                               where r.status = st and public.can_see_request(r.id)))
+                  from unnest(array['nouvelle', 'en_cours', 'inscrite_odj', 'repondue', 'close']) st),
     'by_kind', coalesce((select jsonb_object_agg(kind, n) from (
                   select r.kind, count(*) n from requests r
                   where r.status <> 'close' and public.can_see_request(r.id) group by r.kind) x), '{}'::jsonb),
-    'mine', (select count(*) from requests r where r.assignee_id = auth.uid() and r.status <> 'close'
-             and public.can_see_request(r.id)),
-    'to_triage', (select count(*) from requests r where r.subject_number is null and r.parent_id is null
-                  and r.status <> 'close' and public.can_see_request(r.id)),
+    'subjects_by_status', (select jsonb_object_agg(st, (select count(*) from subjects s
+                                                         where s.status = st and public.can_see_subject(s.id)))
+                           from unnest(array['ouvert', 'inscrit_odj', 'repondu', 'clos']) st),
+    'mine', (select count(*) from subjects s where s.assignee_id = auth.uid() and s.status <> 'clos'
+             and public.can_see_subject(s.id)),
+    'to_triage', (select count(*) from requests r where r.subject_id is null and r.status = 'nouvelle'
+                  and public.can_see_request(r.id)),
     'commitments_late', (select count(*) from commitments c where c.status = 'en_attente'
-                         and c.due_date < private.today() and public.can_see_request(c.request_id)),
+                         and c.due_date < private.today() and public.can_see_subject(c.subject_id)),
     'next_meeting', case when nxt.id is null then null else private.meeting_summary(nxt) end);
 end $$;
 
@@ -862,19 +1009,19 @@ begin
   return jsonb_build_object(
     'items', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'request', private.request_summary(r),
+        'subject', private.subject_summary(s),
         'meetings', coalesce((select jsonb_agg(jsonb_build_object(
                        'meeting_id', m.id, 'title', m.title, 'meeting_date', m.meeting_date,
                        'status', m.status, 'discussed', a.discussed) order by m.meeting_date)
-                     from agenda_items a join meetings m on m.id = a.meeting_id where a.request_id = r.id), '[]'::jsonb),
-        'answered_at', (select max(mm.created_at) from messages mm where mm.request_id = r.id and mm.is_answer),
-        'commitments', private.commitments_of(r.id))
-        order by r.created_at)
-      from requests r
-      where r.parent_id is null and public.can_see_request(r.id)
-        and (r.status in ('nouvelle', 'en_cours', 'inscrite_odj') or (p_include_answered and r.status = 'repondue')
+                     from agenda_items a join meetings m on m.id = a.meeting_id where a.subject_id = s.id), '[]'::jsonb),
+        'answered_at', (select max(n.created_at) from subject_notes n where n.subject_id = s.id and n.is_answer),
+        'commitments', private.commitments_of(s.id))
+        order by s.created_at)
+      from subjects s
+      where public.can_see_subject(s.id)
+        and (s.status in ('ouvert', 'inscrit_odj') or (p_include_answered and s.status = 'repondu')
              -- un sujet répondu reste suivi tant que la direction n'a pas tenu son engagement
-             or exists (select 1 from commitments c where c.request_id = r.id and c.status = 'en_attente'))
+             or exists (select 1 from commitments c where c.subject_id = s.id and c.status = 'en_attente'))
     ), '[]'::jsonb),
     'meetings', coalesce((select jsonb_agg(private.meeting_summary(m) order by m.meeting_date)
                           from meetings m where m.status <> 'annulee'), '[]'::jsonb));
@@ -941,14 +1088,13 @@ begin
     select status into r.status from requests where id = r.id;
     if p ->> 'status' <> r.status then
       perform private.set_status(r.id, p ->> 'status');
-      perform private.propagate_status(r.id, p ->> 'status');
     end if;
   end if;
   return private.request_detail(p_id);
 end $$;
 
--- Réponse possible à tout moment, même si la demande ne passe jamais à l'ordre du jour.
--- p : { body, internal, is_answer, close, also_linked (vrai par défaut) }
+-- Réponse directe au salarié, à tout moment, avec ou sans sujet.
+-- p : { body, internal, is_answer, close }
 create function public.add_message(p_id bigint, p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare
@@ -979,9 +1125,6 @@ begin
   elsif is_ans then
     perform private.add_event(r.id, 'Réponse du CSE (par ' || me.full_name || ')');
     perform private.set_status(r.id, case when do_close then 'close' else 'repondue' end);
-    if coalesce((p ->> 'also_linked')::boolean, true) then
-      perform private.answer_linked(r.id, body, do_close);
-    end if;
   else
     perform private.add_event(r.id, 'Message du CSE');
     if r.status = 'nouvelle' then perform private.set_status(r.id, 'en_cours'); end if;
@@ -990,175 +1133,361 @@ begin
   return private.request_detail(p_id);
 end $$;
 
--- Une demande associée n'a plus sa place propre à l'ordre du jour : son sujet y passe
-create function private.release_from_planned(rid bigint) returns void
+-- Rattache une demande à un sujet (ou la détache si p_subject_id est null)
+create function private.attach_request(r public.requests, s public.subjects) returns void
 language plpgsql security definer set search_path = public as $$
-declare a record;
+declare old_number text;
 begin
-  for a in select ai.id from agenda_items ai join meetings m on m.id = ai.meeting_id
-           where ai.request_id = rid and m.status = 'planifiee' and not ai.discussed loop
-    delete from agenda_items where id = a.id;
-    perform private.add_event(rid, 'Retirée de l''ordre du jour (traitée avec son sujet)', false);
-  end loop;
+  if r.subject_id is not distinct from s.id then return; end if;
+  if r.subject_id is not null then
+    select number into old_number from subjects where id = r.subject_id;
+    perform private.subject_event(r.subject_id, case when r.visible_to_all then 'Demande ' || r.tracking_code || ' détachée'
+                                                     else 'Une demande à accès restreint a été détachée' end);
+  end if;
+  update requests set subject_id = s.id where id = r.id;
+  perform private.add_event(r.id, 'Rattachée au sujet n° ' || s.number || ' suivi par le CSE');
+  perform private.subject_event(s.id, case when r.visible_to_all then 'Demande ' || r.tracking_code || ' rattachée'
+                                           else 'Une demande à accès restreint a été rattachée' end);
+  if r.status in ('nouvelle', 'en_cours', 'inscrite_odj') then
+    perform private.set_status(r.id, case when s.status = 'inscrit_odj' then 'inscrite_odj' else 'en_cours' end);
+  end if;
 end $$;
 
--- Décision de tri : nouveau sujet (p_parent_id null), ou association à un sujet existant
-create function public.triage(p_id bigint, p_parent_id bigint default null) returns jsonb
+create function public.link_request(p_request_id bigint, p_subject_id bigint default null) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare
-  r requests;
-  par requests;
-  num text;
-  c record;
-  target text;
+declare r requests; s subjects;
 begin
-  r := private.require_visible(p_id);
-  if p_parent_id is null then
-    if r.parent_id is not null then
-      perform private.add_event(r.id, 'Dissociée du sujet n° ' ||
-        coalesce((select subject_number from requests where id = r.parent_id), '?'));
-      update requests set parent_id = null where id = r.id;
+  r := private.require_visible(p_request_id);
+  if p_subject_id is null then
+    if r.subject_id is null then
+      raise exception 'Cette demande n''est rattachée à aucun sujet.' using errcode = '22023';
     end if;
-    perform private.assign_number(r.id);
-    if r.status = 'nouvelle' then perform private.set_status(r.id, 'en_cours'); end if;
+    perform private.subject_event(r.subject_id, case when r.visible_to_all then 'Demande ' || r.tracking_code || ' détachée'
+                                                     else 'Une demande à accès restreint a été détachée' end);
+    perform private.add_event(r.id, 'Détachée de son sujet', false);
+    update requests set subject_id = null where id = r.id;
   else
-    par := private.require_visible(p_parent_id);
-    if par.parent_id is not null then  -- on associe toujours au sujet principal
-      par := private.require_visible(par.parent_id);
+    s := private.require_subject(p_subject_id);
+    if s.status = 'clos' then
+      raise exception 'Ce sujet est clos : rouvrez-le avant d''y rattacher une demande.' using errcode = '22023';
     end if;
-    if par.id = r.id then
-      raise exception 'Une demande ne peut pas être associée à elle-même.' using errcode = '22023';
-    end if;
-    num := private.assign_number(par.id);
-    for c in select id from requests where parent_id = r.id loop  -- ses propres demandes associées suivent
-      update requests set parent_id = par.id where id = c.id;
-      perform private.add_event(c.id, 'Associée au sujet n° ' || num);
-    end loop;
-    update requests set parent_id = par.id, subject_number = null where id = r.id;
-    perform private.release_from_planned(r.id);
-    perform private.add_event(r.id, 'Associée au sujet n° ' || num || ', déjà soulevé par d''autres salariés');
-    perform private.add_event(par.id, case when r.visible_to_all then 'Demande ' || r.tracking_code || ' associée à ce sujet'
-                                           else 'Une demande à accès restreint a été associée à ce sujet' end, false);
-    select status into par.status from requests where id = par.id;
-    target := case when par.status in ('en_cours', 'inscrite_odj') then par.status else 'en_cours' end;
-    if r.status in ('nouvelle', 'en_cours', 'inscrite_odj') then
-      perform private.set_status(r.id, target);
-    end if;
+    perform private.attach_request(r, s);
   end if;
-  return private.request_detail(p_id);
+  return private.request_detail(p_request_id);
 end $$;
 
--- Dissocier une demande de son sujet : elle redevient « à trier »
-create function public.untriage(p_id bigint) returns jsonb
-language plpgsql volatile security definer set search_path = public as $$
-declare r requests;
+-- -----------------------------------------------------------------------------
+--  Élus — sujets du CSE
+-- -----------------------------------------------------------------------------
+
+-- Filtres : { status: [..], q, mine, open_only }
+create function public.search_subjects(p jsonb default '{}') returns jsonb
+language plpgsql stable security definer set search_path = public as $$
 begin
-  r := private.require_visible(p_id);
-  if r.parent_id is null then
-    raise exception 'Cette demande n''est associée à aucun sujet.' using errcode = '22023';
-  end if;
-  perform private.add_event(r.id, 'Dissociée du sujet n° ' ||
-    coalesce((select subject_number from requests where id = r.parent_id), '?'));
-  update requests set parent_id = null where id = r.id;
-  return private.request_detail(p_id);
+  perform private.require_elu();
+  return coalesce((
+    select jsonb_agg(private.subject_summary(s) order by s.updated_at desc, s.id desc)
+    from subjects s
+    where public.can_see_subject(s.id)
+      and (p -> 'status' is null or jsonb_typeof(p -> 'status') <> 'array' or jsonb_array_length(p -> 'status') = 0
+           or s.status in (select jsonb_array_elements_text(p -> 'status')))
+      and (not coalesce((p ->> 'open_only')::boolean, false) or s.status <> 'clos')
+      and (not coalesce((p ->> 'mine')::boolean, false) or s.assignee_id = auth.uid())
+      and (nullif(trim(p ->> 'q'), '') is null or
+           s.title ilike '%' || trim(p ->> 'q') || '%' or coalesce(s.description, '') ilike '%' || trim(p ->> 'q') || '%' or
+           s.number ilike '%' || trim(p ->> 'q') || '%' or s.category ilike '%' || trim(p ->> 'q') || '%')), '[]'::jsonb);
 end $$;
 
--- Question ou signalement préparé par un élu (pour une prochaine réunion, par exemple)
--- p : { kind, temporality, situation_start, situation_end, category, subject, description,
---       visible_to_all, viewer_ids, take_charge (vrai par défaut) }
-create function public.create_elu_request(p jsonb) returns jsonb
+create function public.get_subject(p_id bigint) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select private.subject_detail(p_id)
+$$;
+
+-- Nouveau sujet : de zéro, ou à partir de demandes de salariés.
+-- p : { title, kind, temporality, situation_start, situation_end, category, description, priority,
+--       take_charge (vrai par défaut), visible_to_all, viewer_ids, request_ids, meeting_id }
+-- Un sujet créé avec une demande à accès restreint est réservé aux élus choisis par ce salarié.
+create function public.create_subject(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare
   me elus;
-  rid bigint;
-  code text;
-  attempts int := 0;
-  k text := coalesce(p ->> 'kind', 'demande');
+  s subjects;
+  r requests;
+  m meetings;
+  k text := coalesce(nullif(p ->> 'kind', ''), 'demande');
   vis boolean := coalesce((p ->> 'visible_to_all')::boolean, true);
   viewers uuid[];
-  s_start date;
-  s_end date;
+  restricted_viewers uuid[];
+  rid bigint;
+  s_start date := nullif(p ->> 'situation_start', '')::date;
+  s_end date := nullif(p ->> 'situation_end', '')::date;
+  pos int;
 begin
   perform private.require_elu();
   select * into me from elus where id = auth.uid();
   if k not in ('demande', 'signalement') then
     raise exception 'Type invalide.' using errcode = '22023';
   end if;
+  if char_length(trim(coalesce(p ->> 'title', ''))) < 3 then
+    raise exception 'Donnez un intitulé d''au moins 3 caractères.' using errcode = '22023';
+  end if;
   if char_length(trim(coalesce(p ->> 'category', ''))) = 0 then
     raise exception 'Choisissez un thème.' using errcode = '22023';
   end if;
-  if char_length(trim(coalesce(p ->> 'subject', ''))) < 3 then
-    raise exception 'Donnez un objet d''au moins 3 caractères.' using errcode = '22023';
+  if k = 'demande' then s_start := null; s_end := null; end if;
+  if s_start is not null and s_end is not null and s_end < s_start then
+    raise exception 'La fin de la situation ne peut pas précéder son début.' using errcode = '22023';
   end if;
-  if char_length(trim(coalesce(p ->> 'description', ''))) < 5 then
-    raise exception 'Décrivez la question en quelques mots.' using errcode = '22023';
-  end if;
-  if k = 'signalement' then
-    s_start := nullif(p ->> 'situation_start', '')::date;
-    s_end := nullif(p ->> 'situation_end', '')::date;
-    if s_start is not null and s_end is not null and s_end < s_start then
-      raise exception 'La fin de la situation ne peut pas précéder son début.' using errcode = '22023';
+
+  -- Demandes à rattacher : visibles par l'élu ; celles à accès restreint restreignent le sujet
+  for rid in select (jsonb_array_elements_text(coalesce(p -> 'request_ids', '[]'::jsonb)))::bigint loop
+    r := private.require_visible(rid);
+    if not r.visible_to_all then
+      restricted_viewers := case when restricted_viewers is null
+        then array(select elu_id from request_viewers where request_id = r.id)
+        else array(select x from unnest(restricted_viewers) x
+                   where x in (select elu_id from request_viewers where request_id = r.id)) end;
     end if;
-  end if;
+  end loop;
   if not vis then
     select array_agg(e.id) into viewers from elus e
     where e.is_active and e.id::text in (select jsonb_array_elements_text(coalesce(p -> 'viewer_ids', '[]'::jsonb)));
-    viewers := array(select distinct x from unnest(coalesce(viewers, '{}') || me.id) x);  -- l'auteur la voit toujours
+    viewers := array(select distinct x from unnest(coalesce(viewers, '{}') || me.id) x);  -- l'auteur le voit toujours
+  end if;
+  if restricted_viewers is not null then
+    vis := false;
+    viewers := case when viewers is null then restricted_viewers
+                    else array(select x from unnest(viewers) x where x = any (restricted_viewers)) end;
   end if;
 
-  loop
-    attempts := attempts + 1;
-    code := private.new_tracking_code();
-    begin
-      insert into requests (tracking_code, kind, temporality, situation_start, situation_end, category, subject,
-                            description, anonymous, requester_name, requester_service, visible_to_all, origin, created_by)
-      values (code, k, case when k = 'signalement' then coalesce(nullif(p ->> 'temporality', ''), 'actuel') end,
-              s_start, s_end, trim(p ->> 'category'), trim(p ->> 'subject'), trim(p ->> 'description'), false,
-              me.full_name, coalesce(me.mandate, 'Élu CSE'), vis, 'elu', me.id)
-      returning id into rid;
-      exit;
-    exception when unique_violation then
-      if attempts >= 5 then raise; end if;
-    end;
-  end loop;
+  insert into subjects (number, title, description, category, kind, temporality, situation_start, situation_end,
+                        priority, visible_to_all, created_by, assignee_id)
+  values (private.new_subject_number(), left(trim(p ->> 'title'), 200), nullif(trim(p ->> 'description'), ''),
+          trim(p ->> 'category'), k, case when k = 'signalement' then coalesce(nullif(p ->> 'temporality', ''), 'actuel') end,
+          s_start, s_end, coalesce(nullif(p ->> 'priority', ''), 'normale'), vis, me.id,
+          case when coalesce((p ->> 'take_charge')::boolean, true) then me.id end)
+  returning * into s;
   if viewers is not null then
-    insert into request_viewers (request_id, elu_id) select rid, unnest(viewers);
+    insert into subject_viewers (subject_id, elu_id) select s.id, unnest(viewers);
   end if;
-  perform private.add_event(rid, case when k = 'signalement' then 'Signalement saisi par ' else 'Question saisie par ' end
-                                 || me.full_name || ' (élu)');
-  if coalesce((p ->> 'take_charge')::boolean, true) then
-    update requests set assignee_id = me.id, status = 'en_cours' where id = rid;
+  perform private.subject_event(s.id, 'Sujet créé par ' || me.full_name);
+
+  for rid in select (jsonb_array_elements_text(coalesce(p -> 'request_ids', '[]'::jsonb)))::bigint loop
+    select * into r from requests where id = rid;
+    perform private.attach_request(r, s);
+  end loop;
+
+  if nullif(p ->> 'meeting_id', '') is not null then
+    m := private.require_editable((p ->> 'meeting_id')::bigint);
+    select coalesce(max(position), 0) + 1 into pos from agenda_items where meeting_id = m.id;
+    perform private.inscribe(m, s.id, pos, null);
   end if;
-  return private.request_detail(rid);
+  return private.subject_detail(s.id);
+end $$;
+
+-- p : { title, description, category, kind, temporality, situation_start, situation_end, priority,
+--       assignee_id, take_charge, due_date, status (ouvert | clos) }
+create function public.update_subject(p_id bigint, p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  s subjects;
+  a elus;
+  assignee uuid := nullif(p ->> 'assignee_id', '')::uuid;
+  new_due date;
+  s_start date;
+  s_end date;
+begin
+  s := private.require_subject(p_id);
+  if coalesce((p ->> 'take_charge')::boolean, false) then assignee := auth.uid(); end if;
+  if assignee is not null and assignee is distinct from s.assignee_id then
+    select * into a from elus where id = assignee and is_active;
+    if a.id is null then raise exception 'Élu introuvable.' using errcode = 'P0002'; end if;
+    if not s.visible_to_all and not exists (select 1 from subject_viewers where subject_id = s.id and elu_id = a.id) then
+      raise exception 'Cet élu n''a pas accès à ce sujet.' using errcode = '42501';
+    end if;
+    update subjects set assignee_id = a.id where id = s.id;
+    perform private.subject_event(s.id, 'Suivi par ' || a.full_name);
+  end if;
+  if nullif(trim(p ->> 'title'), '') is not null and trim(p ->> 'title') <> s.title then
+    if char_length(trim(p ->> 'title')) < 3 then
+      raise exception 'Donnez un intitulé d''au moins 3 caractères.' using errcode = '22023';
+    end if;
+    update subjects set title = left(trim(p ->> 'title'), 200) where id = s.id;
+    perform private.subject_event(s.id, 'Intitulé modifié');
+  end if;
+  if p ? 'description' and nullif(trim(p ->> 'description'), '') is distinct from s.description then
+    update subjects set description = nullif(trim(p ->> 'description'), '') where id = s.id;
+    perform private.subject_event(s.id, 'Description mise à jour');
+  end if;
+  if nullif(p ->> 'category', '') is not null and p ->> 'category' <> s.category then
+    update subjects set category = p ->> 'category' where id = s.id;
+    perform private.subject_event(s.id, 'Thème : ' || (p ->> 'category'));
+  end if;
+  if nullif(p ->> 'kind', '') in ('demande', 'signalement') and p ->> 'kind' <> s.kind then
+    update subjects set kind = p ->> 'kind',
+      temporality = case when p ->> 'kind' = 'signalement' then coalesce(temporality, 'actuel') end,
+      situation_start = case when p ->> 'kind' = 'signalement' then situation_start end,
+      situation_end = case when p ->> 'kind' = 'signalement' then situation_end end
+    where id = s.id returning * into s;
+  end if;
+  if s.kind = 'signalement' and nullif(p ->> 'temporality', '') in ('actuel', 'a_venir') then
+    update subjects set temporality = p ->> 'temporality' where id = s.id returning * into s;
+  end if;
+  if nullif(p ->> 'priority', '') is not null and p ->> 'priority' <> s.priority then
+    update subjects set priority = p ->> 'priority' where id = s.id;
+    perform private.subject_event(s.id, 'Priorité : ' || (p ->> 'priority'));
+  end if;
+  if p ? 'due_date' then
+    new_due := nullif(p ->> 'due_date', '')::date;
+    if new_due is distinct from s.due_date then
+      update subjects set due_date = new_due where id = s.id;
+      perform private.subject_event(s.id, case when new_due is null then 'Échéance retirée'
+                                               else 'Échéance : ' || private.fr_date(new_due) end);
+    end if;
+  end if;
+  if s.kind = 'signalement' and (p ? 'situation_start' or p ? 'situation_end') then
+    s_start := case when p ? 'situation_start' then nullif(p ->> 'situation_start', '')::date else s.situation_start end;
+    s_end := case when p ? 'situation_end' then nullif(p ->> 'situation_end', '')::date else s.situation_end end;
+    if s_start is not null and s_end is not null and s_end < s_start then
+      raise exception 'La fin de la situation ne peut pas précéder son début.' using errcode = '22023';
+    end if;
+    if s_start is distinct from s.situation_start or s_end is distinct from s.situation_end then
+      update subjects set situation_start = s_start, situation_end = s_end where id = s.id returning * into s;
+      perform private.subject_event(s.id, 'Période : ' ||
+        coalesce(nullif(private.period_text(s.temporality, s_start, s_end), ''), 'non renseignée'));
+    end if;
+  end if;
+  if nullif(p ->> 'status', '') in ('ouvert', 'clos', 'repondu') then
+    perform private.set_subject_status(s.id, p ->> 'status');
+  end if;
+  return private.subject_detail(p_id);
+end $$;
+
+-- p : { request_ids: [..] } : rattache des demandes à ce sujet
+create function public.add_subject_requests(p_id bigint, p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare s subjects; r requests; rid bigint;
+begin
+  s := private.require_subject(p_id);
+  if s.status = 'clos' then
+    raise exception 'Ce sujet est clos : rouvrez-le avant d''y rattacher une demande.' using errcode = '22023';
+  end if;
+  for rid in select (jsonb_array_elements_text(coalesce(p -> 'request_ids', '[]'::jsonb)))::bigint loop
+    r := private.require_visible(rid);
+    perform private.attach_request(r, s);
+  end loop;
+  return private.subject_detail(p_id);
+end $$;
+
+-- Note interne (p.answer = false) ou réponse aux salariés du sujet (p.answer = true, p.close)
+create function public.add_subject_note(p_id bigint, p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare s subjects; body text := trim(coalesce(p ->> 'body', ''));
+begin
+  s := private.require_subject(p_id);
+  if char_length(body) = 0 then raise exception 'Le message est vide.' using errcode = '22023'; end if;
+  if coalesce((p ->> 'answer')::boolean, false) then
+    if s.status = 'clos' then
+      raise exception 'Sujet clos : rouvrez-le avant de répondre.' using errcode = '22023';
+    end if;
+    perform private.answer_subject(s.id, body, coalesce((p ->> 'close')::boolean, false));
+  else
+    insert into subject_notes (subject_id, author_id, body) values (s.id, auth.uid(), body);
+    update subjects set updated_at = now() where id = s.id;
+  end if;
+  return private.subject_detail(p_id);
+end $$;
+
+-- Fusion : le sujet p_id disparaît, tout passe dans p_into (demandes, engagements, notes, réunions)
+create function public.merge_subjects(p_id bigint, p_into bigint) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare src subjects; dst subjects; a agenda_items; r record;
+begin
+  src := private.require_subject(p_id);
+  dst := private.require_subject(p_into);
+  if src.id = dst.id then
+    raise exception 'Choisissez un autre sujet.' using errcode = '22023';
+  end if;
+  for r in select * from requests where subject_id = src.id order by id loop
+    update requests set subject_id = dst.id where id = r.id;
+    perform private.add_event(r.id, 'Rattachée au sujet n° ' || dst.number || ' suivi par le CSE');
+    if r.status in ('nouvelle', 'en_cours', 'inscrite_odj') then
+      perform private.set_status(r.id, case when dst.status = 'inscrit_odj' then 'inscrite_odj' else 'en_cours' end);
+    end if;
+  end loop;
+  for a in select * from agenda_items where subject_id = src.id loop
+    if exists (select 1 from agenda_items where meeting_id = a.meeting_id and subject_id = dst.id) then
+      update agenda_items set outcome = nullif(concat_ws(E'\n', outcome, a.outcome), '')
+      where meeting_id = a.meeting_id and subject_id = dst.id and a.outcome is not null;
+      delete from agenda_items where id = a.id;
+    else
+      update agenda_items set subject_id = dst.id where id = a.id;
+    end if;
+  end loop;
+  update commitments set subject_id = dst.id where subject_id = src.id;
+  update subject_notes set subject_id = dst.id where subject_id = src.id;
+  insert into subject_notes (subject_id, author_id, body)
+  select dst.id, auth.uid(), 'Description du sujet n° ' || src.number || E' (fusionné) :\n' || src.description
+  where nullif(trim(src.description), '') is not null;
+  update subject_events set subject_id = dst.id where subject_id = src.id;
+  perform private.subject_event(dst.id, 'Sujet n° ' || src.number || ' « ' || src.title || ' » fusionné dans ce sujet');
+  if dst.status = 'clos' and exists (select 1 from requests where subject_id = dst.id and status <> 'close') then
+    perform private.set_subject_status(dst.id, 'ouvert');
+  end if;
+  select status into dst.status from subjects where id = dst.id;
+  if dst.status = 'ouvert' and exists (select 1 from agenda_items ai join meetings mt on mt.id = ai.meeting_id
+                                       where ai.subject_id = dst.id and mt.status = 'planifiee') then
+    perform private.set_subject_status(dst.id, 'inscrit_odj');
+  end if;
+  delete from subjects where id = src.id;
+  return private.subject_detail(dst.id);
+end $$;
+
+-- Supprimer un sujet : ses demandes redeviennent sans sujet ; impossible s'il est passé en réunion tenue
+create function public.delete_subject(p_id bigint) returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare s subjects; r record;
+begin
+  s := private.require_subject(p_id);
+  if exists (select 1 from agenda_items a join meetings m on m.id = a.meeting_id
+             where a.subject_id = s.id and m.status = 'tenue') then
+    raise exception 'Ce sujet est passé en réunion : clôturez-le plutôt que de le supprimer.' using errcode = '22023';
+  end if;
+  for r in select * from requests where subject_id = s.id loop
+    perform private.add_event(r.id, 'Détachée de son sujet', false);
+    if r.status = 'inscrite_odj' then perform private.set_status(r.id, 'en_cours'); end if;
+  end loop;
+  update requests set subject_id = null where subject_id = s.id;
+  delete from subjects where id = s.id;
 end $$;
 
 -- Engagement de la direction sur un sujet : p = { text, due_date, meeting_id, public }
-create function public.add_commitment(p_request_id bigint, p jsonb) returns jsonb
+create function public.add_commitment(p_subject_id bigint, p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare r requests; d date; txt text := trim(coalesce(p ->> 'text', '')); pub boolean := coalesce((p ->> 'public')::boolean, true);
+declare s subjects; d date; txt text := trim(coalesce(p ->> 'text', '')); pub boolean := coalesce((p ->> 'public')::boolean, true);
+  r record;
 begin
-  r := private.require_visible(p_request_id);
-  if r.parent_id is not null then  -- l'engagement porte sur le sujet principal
-    r := private.require_visible(r.parent_id);
-  end if;
+  s := private.require_subject(p_subject_id);
   d := nullif(p ->> 'due_date', '')::date;
   if d is null then raise exception 'Indiquez le délai annoncé par la direction.' using errcode = '22023'; end if;
   if char_length(txt) < 3 then raise exception 'Décrivez ce que la direction s''est engagée à faire.' using errcode = '22023'; end if;
-  insert into commitments (request_id, text, due_date, meeting_id, public, created_by)
-  values (r.id, left(txt, 2000), d, nullif(p ->> 'meeting_id', '')::bigint, pub, auth.uid());
-  perform private.add_event(r.id, 'Engagement de la direction, délai au ' || private.fr_date(d) || ' : ' || left(txt, 200), pub);
-  update requests set updated_at = now() where id = r.id;
-  return private.request_detail(p_request_id);
+  insert into commitments (subject_id, text, due_date, meeting_id, public, created_by)
+  values (s.id, left(txt, 2000), d, nullif(p ->> 'meeting_id', '')::bigint, pub, auth.uid());
+  perform private.subject_event(s.id, 'Engagement de la direction, délai au ' || private.fr_date(d) || ' : ' || left(txt, 200));
+  for r in select id from requests where subject_id = s.id loop
+    perform private.add_event(r.id, 'Engagement de la direction, délai au ' || private.fr_date(d) || ' : ' || left(txt, 200), pub);
+  end loop;
+  return private.subject_detail(s.id);
 end $$;
 
 -- p = { status: en_attente | tenu | non_tenu, due_date (report), text }
 create function public.update_commitment(p_id bigint, p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare c commitments; d date;
+declare c commitments; d date; lbl text; r record;
 begin
   perform private.require_elu();
   select * into c from commitments where id = p_id;
-  if c.id is null or not public.can_see_request(c.request_id) then
+  if c.id is null or not public.can_see_subject(c.subject_id) then
     raise exception 'Engagement introuvable.' using errcode = 'P0002';
   end if;
   if nullif(trim(p ->> 'text'), '') is not null and trim(p ->> 'text') <> c.text then
@@ -1167,18 +1496,23 @@ begin
   d := nullif(p ->> 'due_date', '')::date;
   if d is not null and d <> c.due_date then
     update commitments set due_date = d where id = c.id;
-    perform private.add_event(c.request_id, 'Délai de l''engagement reporté au ' || private.fr_date(d), c.public);
+    lbl := 'Délai de l''engagement reporté au ' || private.fr_date(d);
   end if;
   if nullif(p ->> 'status', '') is not null and p ->> 'status' <> c.status then
     update commitments set status = p ->> 'status',
       closed_at = case when p ->> 'status' = 'en_attente' then null else now() end where id = c.id;
-    perform private.add_event(c.request_id, case p ->> 'status'
+    lbl := case p ->> 'status'
       when 'tenu' then 'Engagement de la direction tenu'
       when 'non_tenu' then 'Engagement de la direction non tenu'
-      else 'Engagement de la direction de nouveau en attente' end, c.public);
+      else 'Engagement de la direction de nouveau en attente' end;
   end if;
-  update requests set updated_at = now() where id = c.request_id;
-  return private.request_detail(c.request_id);
+  if lbl is not null then
+    perform private.subject_event(c.subject_id, lbl);
+    for r in select id from requests where subject_id = c.subject_id loop
+      perform private.add_event(r.id, lbl, c.public);
+    end loop;
+  end if;
+  return private.subject_detail(c.subject_id);
 end $$;
 
 create function public.delete_commitment(p_id bigint) returns jsonb
@@ -1187,12 +1521,12 @@ declare c commitments;
 begin
   perform private.require_elu();
   select * into c from commitments where id = p_id;
-  if c.id is null or not public.can_see_request(c.request_id) then
+  if c.id is null or not public.can_see_subject(c.subject_id) then
     raise exception 'Engagement introuvable.' using errcode = 'P0002';
   end if;
   delete from commitments where id = c.id;
-  perform private.add_event(c.request_id, 'Engagement de la direction retiré', false);
-  return private.request_detail(c.request_id);
+  perform private.subject_event(c.subject_id, 'Engagement de la direction retiré');
+  return private.subject_detail(c.subject_id);
 end $$;
 
 -- -----------------------------------------------------------------------------
@@ -1360,22 +1694,24 @@ begin
   return private.meeting_detail(p_id);
 end $$;
 
-create function private.on_other_planned_agenda(rid bigint, except_item bigint) returns boolean
+create function private.on_other_planned_agenda(sid bigint, except_item bigint) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from agenda_items a join meetings m on m.id = a.meeting_id
-                 where a.request_id = rid and m.status = 'planifiee' and a.id <> except_item)
+                 where a.subject_id = sid and m.status = 'planifiee' and a.id <> except_item)
 $$;
 
 create function private.release_item(a public.agenda_items) returns void
 language plpgsql security definer set search_path = public as $$
-declare st text;
+declare st text; r record;
 begin
-  if a.request_id is null or a.discussed then return; end if;
-  perform private.add_event(a.request_id, 'Retirée de l''ordre du jour');
-  select status into st from requests where id = a.request_id;
-  if st = 'inscrite_odj' and not private.on_other_planned_agenda(a.request_id, a.id) then
-    perform private.set_status(a.request_id, 'en_cours');
-    perform private.propagate_status(a.request_id, 'en_cours');
+  if a.subject_id is null or a.discussed then return; end if;
+  perform private.subject_event(a.subject_id, 'Retiré de l''ordre du jour');
+  for r in select id from requests where subject_id = a.subject_id and status <> 'close' loop
+    perform private.add_event(r.id, 'Retirée de l''ordre du jour');
+  end loop;
+  select status into st from subjects where id = a.subject_id;
+  if st = 'inscrit_odj' and not private.on_other_planned_agenda(a.subject_id, a.id) then
+    perform private.set_subject_status(a.subject_id, 'ouvert');
   end if;
 end $$;
 
@@ -1390,50 +1726,51 @@ begin
   delete from meetings where id = p_id;
 end $$;
 
--- Demandes ouvertes, non inscrites à une réunion planifiée, classées par pertinence
+-- Sujets en cours, non inscrits à une réunion planifiée, classés par pertinence
 create function private.proposal() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare w jsonb; total int; items jsonb;
 begin
   select odj_weights into w from settings where id = 1;
   with pending as (
-    select r.* from requests r
-    where r.status in ('nouvelle', 'en_cours', 'inscrite_odj') and r.parent_id is null
+    select s.* from subjects s
+    where s.status in ('ouvert', 'inscrit_odj')
       and not exists (select 1 from agenda_items a join meetings m on m.id = a.meeting_id
-                      where a.request_id = r.id and m.status = 'planifiee')
-      and public.can_see_request(r.id)
+                      where a.subject_id = s.id and m.status = 'planifiee')
+      and public.can_see_subject(s.id)
   ), scored as (
-    select p.id, p.created_at, p.priority, p.kind, p.temporality, p.status, p.subject_number, d.days, nc.n,
+    select p.id, p.created_at, p.priority, p.kind, p.temporality, p.status, d.days, nc.n,
       coalesce((w ->> p.priority)::int, 0)
         + d.days * coalesce((w ->> 'par_jour')::int, 1)
+        + greatest(nc.n - 1, 0) * 5
         + case when p.kind = 'signalement' and p.temporality = 'actuel'
                then coalesce((w ->> 'signalement_actuel')::int, 15) else 0 end as score
     from pending p
-    cross join lateral (select greatest(private.today() - (p.created_at at time zone 'Europe/Paris')::date, 0) as days) d
-    cross join lateral (select count(*) as n from requests c where c.parent_id = p.id) nc
+    cross join lateral (select count(*) as n, min(r.created_at) as first_at from requests r where r.subject_id = p.id) nc
+    cross join lateral (select greatest(private.today() - (least(p.created_at, coalesce(nc.first_at, p.created_at))
+                                                          at time zone 'Europe/Paris')::date, 0) as days) d
   ), top as (
     select * from scored order by score desc, created_at limit coalesce((w ->> 'max_points')::int, 15)
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-      'request', private.request_summary(rq),
+      'subject', private.subject_summary(sj),
       'score', t.score,
-      'wording', private.suggest_wording(rq),
+      'wording', private.suggest_wording(sj),
       'reasons', to_jsonb(array_remove(array[
           case when t.priority = 'haute' then 'Priorité haute' end,
           case when t.days >= 7 then 'En attente depuis ' || t.days || ' jours' end,
-          case when t.kind = 'signalement' and t.temporality = 'actuel' then 'Signalement d''une situation actuelle' end,
-          case when t.status = 'nouvelle' then 'Pas encore prise en charge' end,
-          case when t.status = 'inscrite_odj' then 'Déjà passée en réunion, toujours sans réponse' end,
-          case when t.n > 0 then 'Soulevé par ' || (t.n + 1) || ' salariés' end,
-          case when t.subject_number is null then 'À trier : recevra un numéro de sujet' end], null)))
+          case when t.kind = 'signalement' and t.temporality = 'actuel' then 'Situation actuelle' end,
+          case when t.status = 'inscrit_odj' then 'Déjà passé en réunion, toujours sans réponse' end,
+          case when t.n > 1 then 'Soulevé par ' || t.n || ' salariés' end,
+          case when t.n = 0 then 'Question des élus' end], null)))
       order by t.score desc, t.created_at), '[]'::jsonb)
-  into items from top t join requests rq on rq.id = t.id;
+  into items from top t join subjects sj on sj.id = t.id;
 
-  select count(*) into total from requests r
-  where r.status in ('nouvelle', 'en_cours', 'inscrite_odj') and r.parent_id is null
+  select count(*) into total from subjects s
+  where s.status in ('ouvert', 'inscrit_odj')
     and not exists (select 1 from agenda_items a join meetings m on m.id = a.meeting_id
-                    where a.request_id = r.id and m.status = 'planifiee')
-    and not public.can_see_request(r.id);
+                    where a.subject_id = s.id and m.status = 'planifiee')
+    and not public.can_see_subject(s.id);
   return jsonb_build_object('items', items, 'hidden_pending', total);
 end $$;
 
@@ -1451,8 +1788,8 @@ end $$;
 create function private.meeting_prep(m public.meetings) returns jsonb
 language sql stable security definer set search_path = public as $$
   select private.meeting_summary(m) || jsonb_build_object(
-    'request_points', (select count(*) from agenda_items a where a.meeting_id = m.id and a.request_id is not null),
-    'missing_wording', (select count(*) from agenda_items a where a.meeting_id = m.id and a.request_id is not null
+    'request_points', (select count(*) from agenda_items a where a.meeting_id = m.id and a.subject_id is not null),
+    'missing_wording', (select count(*) from agenda_items a where a.meeting_id = m.id and a.subject_id is not null
                         and nullif(trim(a.wording), '') is null))
 $$;
 
@@ -1501,27 +1838,27 @@ begin
     'others', coalesce((select jsonb_agg(private.meeting_prep(m) order by m.meeting_date, m.id) from meetings m
                         where m.status = 'planifiee' and m.meeting_date >= private.today() and not m.id = any (used)),
                        '[]'::jsonb),
-    'to_triage', (select count(*) from requests r where r.subject_number is null and r.parent_id is null
-                  and r.status <> 'close' and public.can_see_request(r.id)),
+    'to_triage', (select count(*) from requests r where r.subject_id is null and r.status = 'nouvelle'
+                  and public.can_see_request(r.id)),
     'pending', jsonb_array_length(private.proposal() -> 'items'));
 end $$;
 
--- Inscrit une demande à l'ODJ (avec la formulation proposée si aucune n'est fournie)
-create function private.inscribe(m public.meetings, rid bigint, pos int, p_wording text default null) returns bigint
+-- Inscrit un sujet à l'ODJ (avec la formulation proposée si aucune n'est fournie)
+create function private.inscribe(m public.meetings, sid bigint, pos int, p_wording text default null) returns bigint
 language plpgsql security definer set search_path = public as $$
-declare r requests; item_id bigint; c record;
+declare s subjects; item_id bigint; c record;
 begin
-  perform private.assign_number(rid);  -- inscrire à l'ODJ vaut décision : c'est un sujet
-  select * into r from requests where id = rid;
-  insert into agenda_items (meeting_id, request_id, wording, position)
-  values (m.id, r.id, coalesce(nullif(trim(p_wording), ''), private.suggest_wording(r)), pos)
+  select * into s from subjects where id = sid;
+  insert into agenda_items (meeting_id, subject_id, wording, position)
+  values (m.id, s.id, coalesce(nullif(trim(p_wording), ''), private.suggest_wording(s)), pos)
   returning id into item_id;
-  for c in select id, status from requests where id = rid or parent_id = rid order by id loop
+  perform private.subject_event(s.id, 'Inscrit à l''ordre du jour de la réunion du ' || private.fr_date(m.meeting_date));
+  for c in select id from requests where subject_id = s.id and status <> 'close' order by id loop
     perform private.add_event(c.id, 'Inscrite à l''ordre du jour de la réunion du ' || private.fr_date(m.meeting_date));
-    if c.status in ('nouvelle', 'en_cours', 'repondue') then
-      perform private.set_status(c.id, 'inscrite_odj');
-    end if;
   end loop;
+  if s.status in ('ouvert', 'repondu') then
+    perform private.set_subject_status(s.id, 'inscrit_odj');
+  end if;
   return item_id;
 end $$;
 
@@ -1538,33 +1875,29 @@ begin
   return m;
 end $$;
 
--- p : { request_id } ou { title, wording, recurring, recurrence: { every, months, end_date } }
+-- p : { subject_id, wording } ou { title, wording, recurring, recurrence: { every, months, end_date } }
 create function public.add_agenda_item(p_meeting_id bigint, p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare
   m meetings;
-  r requests;
+  s subjects;
   pos int;
   item_id bigint;
-  rid bigint := nullif(p ->> 'request_id', '')::bigint;
+  sid bigint := nullif(p ->> 'subject_id', '')::bigint;
   rule jsonb := nullif(p -> 'recurrence', 'null'::jsonb);
 begin
   m := private.require_editable(p_meeting_id);
   select coalesce(max(position), 0) + 1 into pos from agenda_items where meeting_id = m.id;
-  if rid is not null then
-    r := private.require_visible(rid);
-    if exists (select 1 from agenda_items where meeting_id = m.id and request_id = r.id) then
-      raise exception 'Cette demande est déjà à l''ordre du jour.' using errcode = '23505';
+  if sid is not null then
+    s := private.require_subject(sid);
+    if exists (select 1 from agenda_items where meeting_id = m.id and subject_id = s.id) then
+      raise exception 'Ce sujet est déjà à l''ordre du jour.' using errcode = '23505';
     end if;
-    if r.status = 'close' then raise exception 'Demande clôturée.' using errcode = '22023'; end if;
-    if r.parent_id is not null then
-      raise exception 'Demande associée au sujet n° % : inscrivez ce sujet à l''ordre du jour.',
-        (select subject_number from requests where id = r.parent_id) using errcode = '22023';
-    end if;
-    perform private.inscribe(m, r.id, pos, p ->> 'wording');
+    if s.status = 'clos' then raise exception 'Sujet clos.' using errcode = '22023'; end if;
+    perform private.inscribe(m, s.id, pos, p ->> 'wording');
   else
     if char_length(trim(coalesce(p ->> 'title', ''))) = 0 then
-      raise exception 'Indiquez une demande ou un intitulé de point.' using errcode = '22023';
+      raise exception 'Indiquez un sujet ou un intitulé de point.' using errcode = '22023';
     end if;
     insert into agenda_items (meeting_id, title, wording, position)
     values (m.id, left(trim(p ->> 'title'), 200), nullif(trim(p ->> 'wording'), ''), pos)
@@ -1576,7 +1909,7 @@ begin
   return private.meeting_detail(m.id);
 end $$;
 
--- Génère l'ordre du jour : points fixes d'ouverture, demandes proposées, points fixes de clôture.
+-- Génère l'ordre du jour : points fixes d'ouverture, sujets proposés, points fixes de clôture.
 -- Les points déjà présents sont conservés ; relancer ne duplique rien.
 create function public.generate_agenda(p_meeting_id bigint, p_include_fixed boolean default true) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
@@ -1594,7 +1927,6 @@ declare
   found_id bigint;
   pi jsonb;
   new_id bigint;
-  i int;
 begin
   m := private.require_editable(p_meeting_id);
   if m.kind <> 'ordinaire' then
@@ -1614,7 +1946,7 @@ begin
       end if;
       continue when coalesce(t, '') = '';
       select id into found_id from agenda_items
-      where meeting_id = m.id and request_id is null and lower(trim(title)) = lower(t)
+      where meeting_id = m.id and subject_id is null and lower(trim(title)) = lower(t)
       order by id limit 1;
       if found_id is null then
         insert into agenda_items (meeting_id, title, wording, position) values (m.id, left(t, 200), w, 0)
@@ -1627,11 +1959,10 @@ begin
   select coalesce(array_agg(id order by position, id), '{}') into middle
   from agenda_items where meeting_id = m.id and not (id = any (head || tail));
   for pi in select * from jsonb_array_elements(prop -> 'items') loop
-    new_id := private.inscribe(m, (pi -> 'request' ->> 'id')::bigint, 0, pi ->> 'wording');
+    new_id := private.inscribe(m, (pi -> 'subject' ->> 'id')::bigint, 0, pi ->> 'wording');
     middle := middle || new_id;
   end loop;
 
-  i := 0;
   update agenda_items a set position = o.pos
   from unnest(head || middle || tail) with ordinality as o(id, pos)
   where a.id = o.id;
@@ -1645,8 +1976,8 @@ begin
   perform private.require_elu();
   select * into a from agenda_items where id = p_item_id;
   if a.id is null then raise exception 'Point introuvable.' using errcode = 'P0002'; end if;
-  if a.request_id is not null and not public.can_see_request(a.request_id) then
-    raise exception 'Le demandeur n''a pas autorisé l''accès à ce point.' using errcode = '42501';
+  if a.subject_id is not null and not public.can_see_subject(a.subject_id) then
+    raise exception 'Ce point est à accès restreint.' using errcode = '42501';
   end if;
   return a;
 end $$;
@@ -1666,7 +1997,7 @@ begin
   a := private.get_item(p_item_id);
   select * into m from meetings where id = a.meeting_id;
   old_title := a.title; old_wording := a.wording;
-  if a.request_id is null and nullif(trim(p ->> 'title'), '') is not null then
+  if a.subject_id is null and nullif(trim(p ->> 'title'), '') is not null then
     update agenda_items set title = left(trim(p ->> 'title'), 200) where id = a.id;
   end if;
   if p ? 'wording' and jsonb_typeof(p -> 'wording') <> 'null' then
@@ -1680,7 +2011,7 @@ begin
   end if;
   select * into a from agenda_items where id = a.id;
 
-  if a.request_id is null then
+  if a.subject_id is null then
     if rec = 'false' then
       if a.recurring_id is not null then perform private.stop_recurring(m, a.recurring_id); end if;
     elsif a.recurring_id is null then
@@ -1697,18 +2028,13 @@ begin
     end if;
   end if;
 
-  if a.request_id is not null and coalesce((p ->> 'send_as_answer')::boolean, false) then
+  if a.subject_id is not null and coalesce((p ->> 'send_as_answer')::boolean, false) then
     if a.outcome is null then
       raise exception 'Saisissez d''abord le relevé de décision.' using errcode = '22023';
     end if;
     body := 'Réponse suite à la réunion du ' || private.fr_date(m.meeting_date) || E' :\n\n' || a.outcome;
-    insert into messages (request_id, author_type, author_id, body, is_answer)
-    values (a.request_id, 'elu', auth.uid(), body, true);
-    perform private.add_event(a.request_id, 'Traitée en réunion du ' || private.fr_date(m.meeting_date) || ' — réponse apportée');
     update agenda_items set discussed = true where id = a.id;
-    perform private.set_status(a.request_id, 'repondue');
-    update requests set updated_at = now() where id = a.request_id;
-    perform private.answer_linked(a.request_id, body, false);
+    perform private.answer_subject(a.subject_id, body, false);
   end if;
   return private.meeting_detail(m.id);
 end $$;
@@ -1754,10 +2080,10 @@ begin
   select * into s from settings where id = 1;
   return jsonb_build_object(
     'meeting', private.meeting_detail(p_id),
-    -- Demandes déjà passées à une réunion tenue antérieure : « questions des PV précédents »
-    'held_before', coalesce((select jsonb_agg(distinct a.request_id) from agenda_items a join meetings o on o.id = a.meeting_id
+    -- Sujets déjà passés à une réunion tenue antérieure : « questions des PV précédents »
+    'held_before', coalesce((select jsonb_agg(distinct a.subject_id) from agenda_items a join meetings o on o.id = a.meeting_id
                              where o.status = 'tenue' and o.id <> m.id and o.meeting_date <= m.meeting_date
-                               and a.request_id is not null), '[]'::jsonb),
+                               and a.subject_id is not null), '[]'::jsonb),
     'categories', to_jsonb(s.categories),
     'word', s.word_settings);
 end $$;
@@ -1836,14 +2162,16 @@ end $$;
 create function private.is_space_empty() returns boolean
 language sql stable security definer set search_path = public as $$
   select not exists (select 1 from requests) and not exists (select 1 from meetings)
-     and not exists (select 1 from recurring_points)
+     and not exists (select 1 from recurring_points) and not exists (select 1 from subjects)
 $$;
 
 create function private.wipe_data() returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  truncate public.notifications, public.request_notify, public.commitments, public.agenda_items, public.recurring_points, public.meetings, public.events,
-    public.messages, public.request_viewers, public.requests restart identity;
+  truncate public.notifications, public.request_notify, public.commitments, public.agenda_items,
+    public.recurring_points, public.meetings, public.events, public.messages, public.request_viewers,
+    public.requests, public.subject_events, public.subject_notes, public.subject_viewers, public.subjects
+    restart identity;
 end $$;
 
 create function public.admin_data_summary() returns jsonb
@@ -1851,12 +2179,13 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   perform private.require_admin();
   return jsonb_build_object(
-    'requests', (select count(*) from requests), 'meetings', (select count(*) from meetings),
+    'requests', (select count(*) from requests), 'subjects', (select count(*) from subjects),
+    'meetings', (select count(*) from meetings),
     'commitments', (select count(*) from commitments), 'empty', private.is_space_empty(),
     'is_demo', (select is_demo from settings where id = 1));
 end $$;
 
--- Repartir de zéro : efface demandes, réunions, engagements (confirmation : « EFFACER »)
+-- Repartir de zéro : efface demandes, sujets, réunions, engagements (confirmation : « EFFACER »)
 create function public.admin_wipe_data(p_confirm text) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 begin
@@ -1881,23 +2210,44 @@ language sql security definer set search_path = public as $$
   update events set created_at = ts where created_at = now();
   update messages set created_at = ts where created_at = now();
   update commitments set created_at = ts where created_at = now();
+  update subject_events set created_at = ts where created_at = now();
+  update subject_notes set created_at = ts where created_at = now();
 $$;
 
 create function private.sample_request(
   k text, temp text, cat text, subj text, descr text, who text, service text, anon boolean, n int,
   prio text default 'normale', s_start date default null, vis boolean default true
-) returns bigint
+) returns requests
 language plpgsql security definer set search_path = public as $$
-declare rid bigint;
+declare r requests;
 begin
   insert into requests (tracking_code, kind, temporality, category, subject, description, anonymous,
                         requester_name, requester_service, priority, situation_start, visible_to_all, created_at, updated_at)
   values (private.new_tracking_code(), k, temp, cat, subj, descr, anon, who, service, prio, s_start, vis,
           private.ago(n), private.ago(n))
-  returning id into rid;
+  returning * into r;
   insert into events (request_id, label, created_at)
-  values (rid, case when k = 'signalement' then 'Signalement déposé' else 'Demande déposée' end, private.ago(n));
-  return rid;
+  values (r.id, case when k = 'signalement' then 'Signalement déposé' else 'Demande déposée' end, private.ago(n));
+  return r;
+end $$;
+
+create function private.sample_subject(
+  ttl text, descr text, cat text, k text, temp text, prio text, n int, owner uuid, viewers uuid[] default null
+) returns subjects
+language plpgsql security definer set search_path = public as $$
+declare s subjects;
+begin
+  insert into subjects (number, title, description, category, kind, temporality, priority, visible_to_all,
+                        created_by, assignee_id, created_at, updated_at)
+  values (private.new_subject_number(), ttl, descr, cat, k, temp, prio, viewers is null, owner, owner,
+          private.ago(n, 11), private.ago(n, 11))
+  returning * into s;
+  if viewers is not null then
+    insert into subject_viewers (subject_id, elu_id) select s.id, x from unnest(viewers) x where x is not null;
+  end if;
+  insert into subject_events (subject_id, label, elu_id, created_at)
+  values (s.id, 'Sujet créé par ' || coalesce((select full_name from elus where id = owner), 'un élu'), owner, private.ago(n, 11));
+  return s;
 end $$;
 
 create function private.sample_meeting(n int, st text) returns meetings
@@ -1929,8 +2279,10 @@ create function private.load_sample(main uuid, other uuid default null) returns 
 language plpgsql security definer set search_path = public as $$
 declare
   t date := private.today();
-  fontaine bigint; cheques bigint; cheques2 bigint; samedi bigint; parking bigint; transport bigint; chauffage bigint; nao bigint;
-  m1 meetings; m2 meetings; rp bigint; pos int; num text; main_name text;
+  fontaine requests; cheques requests; cheques2 requests; samedi requests; parking requests;
+  transport requests; chauffage requests;
+  s_fontaine subjects; s_parking subjects; s_transport subjects; s_nao subjects;
+  m1 meetings; m2 meetings; rp bigint; pos int; main_name text; answer text;
 begin
   select full_name into main_name from elus where id = main;
 
@@ -1952,37 +2304,36 @@ begin
     'Notre chef d’équipe nous a demandé de venir travailler samedi prochain. Le CSE a-t-il été informé ?', null, null, true, 3, 'haute', t + 5);
   chauffage := private.sample_request('signalement', 'actuel', 'Conditions de travail', 'Chauffage en panne dans le vestiaire hommes',
     'Le chauffage du vestiaire hommes ne fonctionne plus depuis lundi.', 'Thomas Girard', 'Atelier montage', false, 2, 'haute', t - 2);
-  insert into request_viewers (request_id, elu_id) select transport, x from unnest(array[coalesce(other, main)]) x where x is not null;
+  insert into request_viewers (request_id, elu_id) select transport.id, x from unnest(array[coalesce(other, main)]) x where x is not null;
 
-  -- Question préparée par un élu
-  insert into requests (tracking_code, kind, category, subject, description, requester_name, requester_service,
-                        origin, created_by, assignee_id, status, created_at, updated_at)
-  values (private.new_tracking_code(), 'demande', 'Rémunération, primes, avantages', 'Calendrier des NAO',
-          'Demander à la direction le calendrier des négociations annuelles obligatoires et la liste des thèmes abordés.',
-          coalesce(main_name, 'Élu CSE'), 'Élu CSE', 'elu', main, main, 'en_cours', private.ago(8), private.ago(8))
-  returning id into nao;
-  insert into events (request_id, label, created_at)
-  values (nao, 'Question saisie par ' || coalesce(main_name, 'un élu') || ' (élu)', private.ago(8));
+  -- Sujets portés par les élus
+  s_fontaine := private.sample_subject('Fontaine à eau hors service en zone B',
+    'Fontaine balisée depuis plus d’une semaine : les salariés de la zone B n’ont plus d’accès proche à l’eau potable.',
+    'Santé, sécurité (SSCT)', 'signalement', 'actuel', 'haute', 39, main);
+  perform private.attach_request(fontaine, s_fontaine); perform private.stamp(private.ago(39, 11));
+  s_parking := private.sample_subject('Stationnement sur les places visiteurs',
+    'Places visiteurs occupées par le personnel, livreurs garés sur la voie pompiers.',
+    'Restauration, locaux, parking', 'demande', null, 'normale', 31, main);
+  perform private.attach_request(parking, s_parking); perform private.stamp(private.ago(31, 11));
+  s_transport := private.sample_subject('Prime de transport des intérimaires',
+    'Demander à la direction si les intérimaires bénéficient de la prime de transport, et sinon pourquoi.',
+    'Rémunération, primes, avantages', 'demande', null, 'normale', 3, coalesce(other, main), array[coalesce(other, main)]);
+  perform private.attach_request(transport, s_transport); perform private.stamp(private.ago(3, 11));
+  s_nao := private.sample_subject('Calendrier des NAO 2027',
+    'Demander à la direction le calendrier des négociations annuelles obligatoires et la liste des thèmes abordés.',
+    'Rémunération, primes, avantages', 'demande', null, 'normale', 8, main);
+  insert into subject_notes (subject_id, author_id, body, created_at)
+  values (s_nao.id, main, 'Penser à demander aussi le bilan de l’accord égalité professionnelle.', private.ago(7));
 
-  -- Tri : sujets, prise en charge, demande associée
-  update requests set assignee_id = main where id in (fontaine, parking, cheques) and main is not null;
-  perform private.set_status(fontaine, 'en_cours'); perform private.assign_number(fontaine); perform private.stamp(private.ago(39));
-  perform private.set_status(parking, 'en_cours'); perform private.assign_number(parking); perform private.stamp(private.ago(31));
-  perform private.set_status(cheques, 'en_cours'); num := private.assign_number(cheques); perform private.stamp(private.ago(18));
-  update requests set parent_id = cheques where id = cheques2;
-  perform private.add_event(cheques2, 'Associée au sujet n° ' || num || ', déjà soulevé par d''autres salariés');
-  perform private.set_status(cheques2, 'en_cours'); perform private.stamp(private.ago(11));
-  -- Activités sociales : le CSE répond lui-même, sans passer par la direction
+  -- Activités sociales : le CSE répond lui-même, sans sujet ni passage en réunion
+  answer := E'Bonjour,\n\nLes chèques cadeaux de fin d’année seront distribués la semaine du 7 décembre, '
+            'au local du CSE, avec le même montant que l’an dernier.';
   insert into messages (request_id, author_type, author_id, body, is_answer)
-  values (cheques, 'elu', main, E'Bonjour,\n\nLes chèques cadeaux de fin d’année seront distribués la semaine du 7 décembre, '
-          'au local du CSE, avec le même montant que l’an dernier.', true);
-  perform private.add_event(cheques, 'Réponse du CSE (par ' || coalesce(main_name, 'un élu') || ')');
-  perform private.set_status(cheques, 'repondue');
-  perform private.answer_linked(cheques, E'Bonjour,\n\nLes chèques cadeaux de fin d’année seront distribués la semaine du 7 décembre, '
-          'au local du CSE, avec le même montant que l’an dernier.');
-  update messages set author_id = main where request_id in (cheques, cheques2) and is_answer;
+  values (cheques.id, 'elu', main, answer, true), (cheques2.id, 'elu', main, answer, true);
+  perform private.add_event(cheques.id, 'Réponse du CSE (par ' || coalesce(main_name, 'un élu') || ')');
+  perform private.add_event(cheques2.id, 'Réponse du CSE (par ' || coalesce(main_name, 'un élu') || ')');
+  perform private.set_status(cheques.id, 'repondue'); perform private.set_status(cheques2.id, 'repondue');
   perform private.stamp(private.ago(9));
-  perform private.assign_number(nao); perform private.stamp(private.ago(8, 11));
 
   -- Réunion passée (tenue) : points fixes, deux sujets traités, point récurrent
   m1 := private.sample_meeting(25, 'tenue');
@@ -1990,49 +2341,54 @@ begin
   insert into recurring_points (title, wording, kind, start_date)
   values ('Point sur la mutuelle', 'Suivi du contrat santé : cotisations, réclamations, évolutions.', 'ordinaire', m1.meeting_date)
   returning id into rp;
-  perform private.inscribe(m1, fontaine, pos + 1, null);
-  perform private.inscribe(m1, parking, pos + 2, null);
+  perform private.inscribe(m1, s_fontaine.id, pos + 1, null);
+  perform private.inscribe(m1, s_parking.id, pos + 2, null);
   perform private.stamp(private.ago(28));
   insert into agenda_items (meeting_id, recurring_id, title, wording, position, discussed, outcome)
   values (m1.id, rp, 'Point sur la mutuelle', 'Suivi du contrat santé : cotisations, réclamations, évolutions.', pos + 3, true,
           'Pas d’évolution des cotisations au 1er janvier.');
   update agenda_items set discussed = true, outcome = 'La direction a commandé une nouvelle fontaine, installation prévue sous trois semaines.'
-  where meeting_id = m1.id and request_id = fontaine;
+  where meeting_id = m1.id and subject_id = s_fontaine.id;
   update agenda_items set discussed = true, outcome = 'Marquage au sol des places visiteurs et rappel des règles par note de service.'
-  where meeting_id = m1.id and request_id = parking;
-  insert into messages (request_id, author_type, author_id, body, is_answer)
-  values (fontaine, 'elu', main, 'Réponse suite à la réunion du ' || private.fr_date(m1.meeting_date) ||
-          E' :\n\nLa direction a commandé une nouvelle fontaine, installation prévue sous trois semaines.', true),
-         (parking, 'elu', main, 'Réponse suite à la réunion du ' || private.fr_date(m1.meeting_date) ||
-          E' :\n\nMarquage au sol des places visiteurs et rappel des règles par note de service.', true);
-  perform private.add_event(fontaine, 'Traitée en réunion du ' || private.fr_date(m1.meeting_date) || ' — réponse apportée');
-  perform private.add_event(parking, 'Traitée en réunion du ' || private.fr_date(m1.meeting_date) || ' — réponse apportée');
-  perform private.set_status(fontaine, 'repondue'); perform private.set_status(parking, 'repondue');
+  where meeting_id = m1.id and subject_id = s_parking.id;
+  perform private.answer_subject(s_fontaine.id, 'Réponse suite à la réunion du ' || private.fr_date(m1.meeting_date) ||
+          E' :\n\nLa direction a commandé une nouvelle fontaine, installation prévue sous trois semaines.');
+  perform private.answer_subject(s_parking.id, 'Réponse suite à la réunion du ' || private.fr_date(m1.meeting_date) ||
+          E' :\n\nMarquage au sol des places visiteurs et rappel des règles par note de service.');
+  update messages set author_id = main where is_answer and author_id is null;
+  update subject_notes set author_id = main where is_answer and author_id is null;
   -- Engagements de la direction : un en retard, un tenu
-  insert into commitments (request_id, text, due_date, meeting_id, created_by)
-  values (fontaine, 'Installer une nouvelle fontaine à eau en zone B', t - 4, m1.id, main),
-         (parking, 'Marquage au sol des places visiteurs', t - 12, m1.id, main);
-  perform private.add_event(fontaine, 'Engagement de la direction, délai au ' || private.fr_date(t - 4) || ' : Installer une nouvelle fontaine à eau en zone B');
-  perform private.add_event(parking, 'Engagement de la direction, délai au ' || private.fr_date(t - 12) || ' : Marquage au sol des places visiteurs');
+  insert into commitments (subject_id, text, due_date, meeting_id, created_by)
+  values (s_fontaine.id, 'Installer une nouvelle fontaine à eau en zone B', t - 4, m1.id, main),
+         (s_parking.id, 'Marquage au sol des places visiteurs', t - 12, m1.id, main);
+  perform private.subject_event(s_fontaine.id, 'Engagement de la direction, délai au ' || private.fr_date(t - 4) || ' : Installer une nouvelle fontaine à eau en zone B');
+  perform private.add_event(fontaine.id, 'Engagement de la direction, délai au ' || private.fr_date(t - 4) || ' : Installer une nouvelle fontaine à eau en zone B');
+  perform private.subject_event(s_parking.id, 'Engagement de la direction, délai au ' || private.fr_date(t - 12) || ' : Marquage au sol des places visiteurs');
+  perform private.add_event(parking.id, 'Engagement de la direction, délai au ' || private.fr_date(t - 12) || ' : Marquage au sol des places visiteurs');
   perform private.stamp(private.ago(25, 16));
-  update commitments set status = 'tenu', closed_at = private.ago(11) where request_id = parking;
-  perform private.add_event(parking, 'Engagement de la direction tenu');
+  update commitments set status = 'tenu', closed_at = private.ago(11) where subject_id = s_parking.id;
+  perform private.subject_event(s_parking.id, 'Engagement de la direction tenu');
+  perform private.add_event(parking.id, 'Engagement de la direction tenu');
   perform private.stamp(private.ago(11, 15));
 
   -- Prochaine réunion (planifiée) : points fixes, sujets inscrits, point récurrent repris
   m2 := private.sample_meeting(-10, 'planifiee');
   pos := private.sample_fixed_points(m2);
-  perform private.inscribe(m2, transport, pos + 1, null);
-  perform private.inscribe(m2, nao, pos + 2, null);
+  perform private.inscribe(m2, s_transport.id, pos + 1, null);
+  perform private.inscribe(m2, s_nao.id, pos + 2, null);
   insert into agenda_items (meeting_id, recurring_id, title, wording, position)
   values (m2.id, rp, 'Point sur la mutuelle', 'Suivi du contrat santé : cotisations, réclamations, évolutions.', pos + 3);
   perform private.stamp(private.ago(1));
 
-  -- Dernière activité de chaque demande
+  -- Dernière activité de chaque demande et de chaque sujet
   update requests r set updated_at = x.last
   from (select q.id, coalesce((select max(e.created_at) from events e where e.request_id = q.id), q.created_at) last
         from requests q) x
   where x.id = r.id and r.updated_at is distinct from x.last;
+  update subjects s set updated_at = x.last
+  from (select q.id, coalesce((select max(e.created_at) from subject_events e where e.subject_id = q.id), q.created_at) last
+        from subjects q) x
+  where x.id = s.id and s.updated_at is distinct from x.last;
 end $$;
 
 -- Charger l'exemple fourni dans un espace vide
@@ -2064,10 +2420,18 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   perform private.require_admin();
   return jsonb_build_object(
-    'format', 'allocse', 'version', 1, 'exported_at', now(),
+    'format', 'allocse', 'version', 2, 'exported_at', now(),
     'organisation', (select organisation from settings where id = 1),
-    'requests', coalesce((select jsonb_agg(to_jsonb(r) - 'assignee_id' - 'created_by' || jsonb_build_object(
-                   'assignee_email', private.email_of(r.assignee_id), 'created_by_email', private.email_of(r.created_by),
+    'subjects', coalesce((select jsonb_agg(to_jsonb(s) - 'assignee_id' - 'created_by' || jsonb_build_object(
+                   'assignee_email', private.email_of(s.assignee_id), 'created_by_email', private.email_of(s.created_by),
+                   'viewer_emails', (select coalesce(jsonb_agg(private.email_of(v.elu_id)), '[]') from subject_viewers v where v.subject_id = s.id))
+                   order by s.id) from subjects s), '[]'),
+    'subject_notes', coalesce((select jsonb_agg(to_jsonb(n) - 'author_id' || jsonb_build_object('author_email', private.email_of(n.author_id))
+                   order by n.id) from subject_notes n), '[]'),
+    'subject_events', coalesce((select jsonb_agg(to_jsonb(e) - 'elu_id' || jsonb_build_object('elu_email', private.email_of(e.elu_id))
+                   order by e.id) from subject_events e), '[]'),
+    'requests', coalesce((select jsonb_agg(to_jsonb(r) - 'assignee_id' || jsonb_build_object(
+                   'assignee_email', private.email_of(r.assignee_id),
                    'viewer_emails', (select coalesce(jsonb_agg(private.email_of(v.elu_id)), '[]') from request_viewers v where v.request_id = r.id))
                    order by r.id) from requests r), '[]'),
     'messages', coalesce((select jsonb_agg(to_jsonb(m) - 'author_id' || jsonb_build_object('author_email', private.email_of(m.author_id))
@@ -2081,6 +2445,14 @@ begin
                    order by c.id) from commitments c), '[]'));
 end $$;
 
+-- Élus d'une liste d'e-mails présents dans cet espace ; à défaut, l'administrateur qui importe
+create function private.viewers_from(x jsonb) returns uuid[]
+language sql stable security definer set search_path = public as $$
+  select coalesce((select array_agg(distinct u) from (
+           select private.elu_by_email(e) u from jsonb_array_elements_text(coalesce(x, '[]')) e) s where u is not null),
+         array[auth.uid()])
+$$;
+
 -- Import dans un espace vide. p_shift : décale toutes les dates de l'écart entre l'export et aujourd'hui
 create function public.admin_import_data(p jsonb, p_shift boolean default true) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
@@ -2088,12 +2460,17 @@ declare
   delta interval := '0';
   days int := 0;
   x jsonb;
+  s subjects; sn subject_notes; se subject_events;
   r requests; m meetings; rp recurring_points; a agenda_items; c commitments; msg messages; ev events;
-  viewers uuid[];
+  t text;
 begin
   perform private.require_admin();
   if coalesce(p ->> 'format', '') <> 'allocse' then
     raise exception 'Ce fichier n''est pas un export AlloCSE.' using errcode = '22023';
+  end if;
+  if coalesce((p ->> 'version')::int, 1) < 2 then
+    raise exception 'Cet export vient d''une version précédente d''AlloCSE (avant les sujets) : il ne peut pas être rechargé.'
+      using errcode = '22023';
   end if;
   if not private.is_space_empty() then
     raise exception 'L''espace contient déjà des données : videz-le d''abord.' using errcode = '22023';
@@ -2103,6 +2480,27 @@ begin
     delta := make_interval(days => days);
   end if;
 
+  for x in select * from jsonb_array_elements(coalesce(p -> 'subjects', '[]')) loop
+    s := jsonb_populate_record(null::subjects, x);
+    s.assignee_id := private.elu_by_email(x ->> 'assignee_email');
+    s.created_by := private.elu_by_email(x ->> 'created_by_email');
+    s.created_at := s.created_at + delta; s.updated_at := s.updated_at + delta;
+    s.situation_start := s.situation_start + days; s.situation_end := s.situation_end + days; s.due_date := s.due_date + days;
+    insert into subjects overriding system value select (s).*;
+    if not s.visible_to_all then
+      insert into subject_viewers (subject_id, elu_id) select s.id, unnest(private.viewers_from(x -> 'viewer_emails'));
+    end if;
+  end loop;
+  for x in select * from jsonb_array_elements(coalesce(p -> 'subject_notes', '[]')) loop
+    sn := jsonb_populate_record(null::subject_notes, x);
+    sn.author_id := private.elu_by_email(x ->> 'author_email'); sn.created_at := sn.created_at + delta;
+    insert into subject_notes overriding system value select (sn).*;
+  end loop;
+  for x in select * from jsonb_array_elements(coalesce(p -> 'subject_events', '[]')) loop
+    se := jsonb_populate_record(null::subject_events, x);
+    se.elu_id := private.elu_by_email(x ->> 'elu_email'); se.created_at := se.created_at + delta;
+    insert into subject_events overriding system value select (se).*;
+  end loop;
   for x in select * from jsonb_array_elements(coalesce(p -> 'meetings', '[]')) loop
     m := jsonb_populate_record(null::meetings, x);
     m.meeting_date := m.meeting_date + days; m.created_at := m.created_at + delta;
@@ -2113,25 +2511,17 @@ begin
     rp.start_date := rp.start_date + days; rp.end_date := rp.end_date + days; rp.created_at := rp.created_at + delta;
     insert into recurring_points overriding system value select (rp).*;
   end loop;
-  -- Demandes : d'abord sans lien de sujet, puis les associations
   for x in select * from jsonb_array_elements(coalesce(p -> 'requests', '[]')) loop
     r := jsonb_populate_record(null::requests, x);
-    r.parent_id := null;
     r.assignee_id := private.elu_by_email(x ->> 'assignee_email');
-    r.created_by := private.elu_by_email(x ->> 'created_by_email');
     r.created_at := r.created_at + delta; r.updated_at := r.updated_at + delta;
     r.situation_start := r.situation_start + days; r.situation_end := r.situation_end + days; r.due_date := r.due_date + days;
     insert into requests overriding system value select (r).*;
     if not r.visible_to_all then
-      select array_agg(distinct u) into viewers from (
-        select private.elu_by_email(e) u from jsonb_array_elements_text(coalesce(x -> 'viewer_emails', '[]')) e) s where u is not null;
       -- Aucun élu destinataire retrouvé : l'administrateur qui importe la reçoit, pour qu'elle ne soit pas perdue
-      insert into request_viewers (request_id, elu_id) select r.id, unnest(coalesce(viewers, array[auth.uid()]));
+      insert into request_viewers (request_id, elu_id) select r.id, unnest(private.viewers_from(x -> 'viewer_emails'));
     end if;
   end loop;
-  update requests q set parent_id = (j.v ->> 'parent_id')::bigint
-  from jsonb_array_elements(coalesce(p -> 'requests', '[]')) j(v)
-  where q.id = (j.v ->> 'id')::bigint and j.v ->> 'parent_id' is not null;
   for x in select * from jsonb_array_elements(coalesce(p -> 'messages', '[]')) loop
     msg := jsonb_populate_record(null::messages, x);
     msg.author_id := private.elu_by_email(x ->> 'author_email'); msg.created_at := msg.created_at + delta;
@@ -2154,13 +2544,11 @@ begin
   end loop;
 
   -- Les compteurs reprennent après les identifiants importés
-  perform setval(pg_get_serial_sequence('public.requests', 'id'), (select coalesce(max(id), 0) + 1 from requests), false);
-  perform setval(pg_get_serial_sequence('public.messages', 'id'), (select coalesce(max(id), 0) + 1 from messages), false);
-  perform setval(pg_get_serial_sequence('public.events', 'id'), (select coalesce(max(id), 0) + 1 from events), false);
-  perform setval(pg_get_serial_sequence('public.meetings', 'id'), (select coalesce(max(id), 0) + 1 from meetings), false);
-  perform setval(pg_get_serial_sequence('public.recurring_points', 'id'), (select coalesce(max(id), 0) + 1 from recurring_points), false);
-  perform setval(pg_get_serial_sequence('public.agenda_items', 'id'), (select coalesce(max(id), 0) + 1 from agenda_items), false);
-  perform setval(pg_get_serial_sequence('public.commitments', 'id'), (select coalesce(max(id), 0) + 1 from commitments), false);
+  foreach t in array array['subjects', 'subject_notes', 'subject_events', 'requests', 'messages', 'events',
+                           'meetings', 'recurring_points', 'agenda_items', 'commitments'] loop
+    execute format('select setval(pg_get_serial_sequence(%L, ''id''), (select coalesce(max(id), 0) + 1 from public.%I), false)',
+                   'public.' || t, t);
+  end loop;
   return public.admin_data_summary();
 end $$;
 
@@ -2394,10 +2782,13 @@ grant execute on function public.public_config(), public.track_request(text),
 
 -- Élus connectés (chaque fonction vérifie en plus que le compte est validé)
 grant execute on function
-  public.is_active_elu(), public.is_admin(), public.can_see_request(bigint),
+  public.is_active_elu(), public.is_admin(), public.can_see_request(bigint), public.can_see_subject(bigint),
   public.search_requests(jsonb), public.get_request(bigint), public.dashboard_stats(),
   public.timeline(boolean), public.update_request(bigint, jsonb), public.add_message(bigint, jsonb),
-  public.triage(bigint, bigint), public.untriage(bigint), public.create_elu_request(jsonb),
+  public.link_request(bigint, bigint),
+  public.search_subjects(jsonb), public.get_subject(bigint), public.create_subject(jsonb),
+  public.update_subject(bigint, jsonb), public.add_subject_requests(bigint, jsonb),
+  public.add_subject_note(bigint, jsonb), public.merge_subjects(bigint, bigint), public.delete_subject(bigint),
   public.add_commitment(bigint, jsonb), public.update_commitment(bigint, jsonb), public.delete_commitment(bigint),
   public.list_meetings(), public.create_meeting(jsonb), public.get_meeting(bigint),
   public.update_meeting(bigint, jsonb), public.delete_meeting(bigint), public.preparation(),
@@ -2414,7 +2805,7 @@ grant execute on function
 -- search_requests s'exécute avec les droits de l'élu : il appelle ces aides internes
 grant usage on schema private to authenticated;
 grant execute on function private.request_summary(public.requests), private.elu_json(uuid),
-  private.subject_number_of(public.requests) to authenticated;
+  private.subject_ref(bigint) to authenticated;
 
 -- Les fonctions créées plus tard ne seront pas exécutables par défaut
 alter default privileges in schema public revoke execute on functions from public, anon, authenticated;

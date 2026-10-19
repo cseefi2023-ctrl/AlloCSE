@@ -26,19 +26,20 @@ begin
   end if;
 end $$;
 
-drop table if exists public.notifications, public.request_notify, public.commitments, public.agenda_items, public.recurring_points, public.meetings, public.events,
-  public.messages, public.request_viewers, public.requests, public.elus, public.settings cascade;
+drop table if exists public.notifications, public.request_notify, public.commitments, public.agenda_items,
+  public.recurring_points, public.meetings, public.events, public.messages, public.request_viewers, public.requests,
+  public.subject_events, public.subject_notes, public.subject_viewers, public.subjects,
+  public.elus, public.settings cascade;
 
-drop function if exists public.is_active_elu, public.is_admin, public.can_see_request,
-  public.public_config, public.submit_request, public.track_request, public.add_public_message,
-  public.search_requests, public.get_request, public.dashboard_stats, public.timeline,
-  public.update_request, public.add_message, public.triage, public.untriage,
-  public.list_meetings, public.create_meeting, public.get_meeting, public.update_meeting,
-  public.delete_meeting, public.preparation, public.propose_agenda, public.add_agenda_item,
-  public.generate_agenda, public.update_agenda_item, public.remove_agenda_item, public.reorder_agenda,
-  public.meeting_word_data, public.update_my_profile, public.admin_update_elu,
-  public.create_elu_request, public.add_commitment, public.update_commitment, public.delete_commitment,
-  public.admin_data_summary, public.admin_wipe_data, public.admin_load_sample, public.admin_export_data,
-  public.admin_import_data, public.demo_reset, public.admin_notification_status, public.admin_send_test_mail cascade;
+-- Toutes les fonctions AlloCSE du schéma public (celles des extensions ne sont pas touchées)
+do $$
+declare f record;
+begin
+  for f in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public'
+             and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e') loop
+    execute 'drop function if exists ' || f.sig || ' cascade';
+  end loop;
+end $$;
 
 drop schema if exists private cascade;

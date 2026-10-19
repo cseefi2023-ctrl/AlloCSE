@@ -9,6 +9,7 @@ import InboxIcon from '@mui/icons-material/InboxOutlined'
 import EventNoteIcon from '@mui/icons-material/EventNoteOutlined'
 import ViewTimelineIcon from '@mui/icons-material/ViewTimelineOutlined'
 import GroupIcon from '@mui/icons-material/GroupOutlined'
+import TopicIcon from '@mui/icons-material/TopicOutlined'
 import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import { useApp } from '../App'
 import { Logo, ModeToggle } from './PublicLayout'
@@ -26,11 +27,14 @@ export default function EluLayout() {
 
   const nav = [
     { to: '/elus', label: 'Accueil', icon: <SpaceDashboardIcon />, end: true },
-    { to: '/elus/demandes', label: 'Demandes', icon: <InboxIcon /> },
-    { to: '/elus/suivi', label: 'Suivi', icon: <ViewTimelineIcon /> },
+    { to: '/elus/demandes', label: 'Demandes', long: 'Demandes salariés', icon: <InboxIcon /> },
+    { to: '/elus/sujets', label: 'Sujets', long: 'Sujets CSE', icon: <TopicIcon /> },
     { to: '/elus/reunions', label: 'Réunions', icon: <EventNoteIcon /> },
-    ...(user.role === 'admin' ? [{ to: '/elus/comptes', label: 'Élus', icon: <GroupIcon /> }] : []),
+    { to: '/elus/suivi', label: 'Suivi', icon: <ViewTimelineIcon /> },
+    ...(user.role === 'admin' ? [{ to: '/elus/comptes', label: 'Élus', icon: <GroupIcon />, adminOnly: true }] : []),
   ]
+  // Sur téléphone : 5 onglets au plus, la gestion des élus passe dans le menu du compte
+  const bottomNav = nav.filter((n) => !n.adminOnly)
   const active = [...nav].reverse().find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)))
 
   return (
@@ -54,6 +58,7 @@ export default function EluLayout() {
             </Box>
             <Divider />
             <MenuItem onClick={() => { setMenu(null); navigate('/elus/profil') }}>Mon profil</MenuItem>
+            {!desktop && user.role === 'admin' && <MenuItem onClick={() => { setMenu(null); navigate('/elus/comptes') }}>Élus et réglages</MenuItem>}
             <MenuItem onClick={() => { setMenu(null); navigate('/') }}>Voir l’espace salarié</MenuItem>
             <MenuItem onClick={async () => { setMenu(null); await logout(); navigate('/') }}>Se déconnecter</MenuItem>
           </Menu>
@@ -68,7 +73,7 @@ export default function EluLayout() {
               <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.end} selected={active?.to === n.to}
                 sx={{ borderRadius: 2, mb: 0.5, '&.Mui-selected': { bgcolor: 'action.selected', fontWeight: 700 } }}>
                 <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-                <ListItemText primary={n.label} primaryTypographyProps={{ fontWeight: active?.to === n.to ? 700 : 400 }} />
+                <ListItemText primary={n.long || n.label} primaryTypographyProps={{ fontWeight: active?.to === n.to ? 700 : 400 }} />
               </ListItemButton>
             ))}
           </List>
@@ -84,8 +89,8 @@ export default function EluLayout() {
 
       {!desktop && (
         <Paper square sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, borderTop: 1, borderColor: 'divider', pb: 'env(safe-area-inset-bottom)', zIndex: 10 }}>
-          <BottomNavigation showLabels value={active?.to || false} onChange={(_, v) => navigate(v)}>
-            {nav.map((n) => <BottomNavigationAction key={n.to} value={n.to} label={n.label} icon={n.icon} />)}
+          <BottomNavigation showLabels value={bottomNav.some((n) => n.to === active?.to) ? active.to : false} onChange={(_, v) => navigate(v)}>
+            {bottomNav.map((n) => <BottomNavigationAction key={n.to} value={n.to} label={n.label} icon={n.icon} sx={{ minWidth: 0, px: 0.5 }} />)}
           </BottomNavigation>
         </Paper>
       )}

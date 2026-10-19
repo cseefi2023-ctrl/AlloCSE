@@ -51,7 +51,7 @@ export function layout({ meeting, held_before: heldBefore, categories, word }) {
     if (it.restricted) {
       others.push({ text: it.title })
       seenRequest = true
-    } else if (it.request_id == null) {
+    } else if (it.subject_id == null) {
       const ls = lines(it.wording)
       const block = {
         title: it.title, text: ls.length === 1 ? ls[0] : null, outcome: it.outcome,
@@ -61,7 +61,7 @@ export function layout({ meeting, held_before: heldBefore, categories, word }) {
     } else {
       seenRequest = true
       const point = { text: lines(it.wording).join(' ') || it.title, outcome: it.outcome }
-      if (held.has(it.request_id)) carried.push(point)
+      if (held.has(it.subject_id)) carried.push(point)
       else {
         const c = it.category || ''
         if (!byCategory.has(c)) byCategory.set(c, [])

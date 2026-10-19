@@ -63,8 +63,8 @@ export default function PreparationPanel() {
     <Section title="Préparation des réunions">
       {(prep.to_triage > 0 || prep.pending > 0) && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {prep.to_triage > 0 && <><Link component={RouterLink} to="/elus/demandes?tri=1" sx={{ fontWeight: 700 }}>{prep.to_triage} demande{prep.to_triage > 1 ? 's' : ''} à trier</Link> (nouveau sujet ou association). </>}
-          {prep.pending > 0 && <>{prep.pending} sujet{prep.pending > 1 ? 's' : ''} en attente d’inscription à une réunion.</>}
+          {prep.to_triage > 0 && <><Link component={RouterLink} to="/elus/demandes?tri=1" sx={{ fontWeight: 700 }}>{prep.to_triage} demande{prep.to_triage > 1 ? 's' : ''} à trier</Link> (réponse directe ou sujet). </>}
+          {prep.pending > 0 && <><Link component={RouterLink} to="/elus/sujets" sx={{ fontWeight: 700 }}>{prep.pending} sujet{prep.pending > 1 ? 's' : ''}</Link> en attente d’inscription à une réunion.</>}
         </Alert>
       )}
       <Grid container spacing={1.5}>

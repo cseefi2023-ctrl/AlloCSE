@@ -6,7 +6,7 @@ import {
 } from '@mui/material'
 import WarningIcon from '@mui/icons-material/ReportProblemOutlined'
 import { useApp } from '../../App'
-import { api, fmtShort, periodLabel, STATUS } from '../../api'
+import { api, fmtShort, periodLabel, SUBJECT_STATUS as STATUS } from '../../api'
 import { ErrorAlert } from '../../components'
 
 const DAY = 86400000
@@ -27,10 +27,13 @@ const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`
 
 // Une ligne du diagramme : début, fin, retard éventuel
 function describe(item, today) {
-  const r = item.request
+  // Un sujet commence à la première demande de salarié rattachée, ou à sa création
+  const s = item.subject
+  const first = s.first_request_at && s.first_request_at < s.created_at ? s.first_request_at : s.created_at
+  const r = { ...s, subject: s.title, created_at: first }
   const start = dayOf(r.created_at)
   const due = r.due_date ? dayOf(r.due_date) : null
-  const answered = item.answered_at && r.status === 'repondue' ? dayOf(item.answered_at) : null
+  const answered = item.answered_at && r.status === 'repondu' ? dayOf(item.answered_at) : null
   const end = answered || today
   const late = !answered && due && due < today ? daysBetween(due, today) : 0
   // Engagements de la direction : le plus en retard parmi ceux en attente
@@ -62,7 +65,7 @@ export default function Gantt() {
   const rows = useMemo(() => {
     if (!data) return []
     return data.items
-      .filter((i) => (!kind || i.request.kind === kind) && (!mine || i.request.assignee?.id === user.id))
+      .filter((i) => (!kind || i.subject.kind === kind) && (!mine || i.subject.assignee?.id === user.id))
       .map((i) => describe(i, today))
       .sort((a, b) => (Math.max(b.late, b.commitLate) - Math.max(a.late, a.commitLate)) || ((a.due || Infinity) - (b.due || Infinity)) || (a.start - b.start))
   }, [data, kind, mine, user.id, today])
@@ -120,7 +123,7 @@ export default function Gantt() {
         </TextField>
         <TextField select size="small" label="Type" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ width: 170 }}
           InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true }}>
-          <MenuItem value="">Tous</MenuItem><MenuItem value="demande">Demandes</MenuItem><MenuItem value="signalement">Signalements</MenuItem>
+          <MenuItem value="">Tous</MenuItem><MenuItem value="demande">Questions</MenuItem><MenuItem value="signalement">Alertes</MenuItem>
         </TextField>
         <FormControlLabel control={<Checkbox checked={mine} onChange={(e) => setMine(e.target.checked)} />} label="Mes sujets" />
         <FormControlLabel control={<Checkbox checked={answered} onChange={(e) => setAnswered(e.target.checked)} />} label="Inclure les sujets répondus" />
@@ -162,7 +165,7 @@ export default function Gantt() {
           <Box sx={{ position: 'relative' }}>
             {rows.map((row) => (
               <Row key={row.r.id} row={row} pct={pct} inRange={inRange} range={range} colors={colors} surface={surface}
-                months={months} meetings={meetings} today={today} onOpen={() => navigate(`/elus/demandes/${row.r.id}`)} />
+                months={months} meetings={meetings} today={today} onOpen={() => navigate(`/elus/sujets/${row.r.id}`)} />
             ))}
           </Box>
         </Card>
@@ -218,7 +221,7 @@ function Row({ row, pct, inRange, range, colors, surface, months, meetings, toda
     <Box sx={{ p: 0.5 }}>
       <Typography sx={{ fontWeight: 700, mb: 0.5 }}>{r.subject}</Typography>
       <Typography variant="body2">{STATUS[r.status]?.label}, {r.category}</Typography>
-      <Typography variant="body2">Déposée le {fmtShort(r.created_at)}</Typography>
+      <Typography variant="body2">Depuis le {fmtShort(r.created_at)}{r.request_count ? `, ${plural(r.request_count, 'demande')}` : ', question des élus'}</Typography>
       {r.kind === 'signalement' && <Typography variant="body2">Situation {periodLabel(r) || 'sans date connue'}</Typography>}
       <Typography variant="body2">{due ? `Échéance : ${fmtShort(r.due_date)}` : 'Sans échéance'}</Typography>
       {late > 0 && <Typography variant="body2" sx={{ fontWeight: 700 }}>En retard de {plural(late, 'jour')}</Typography>}
@@ -237,13 +240,13 @@ function Row({ row, pct, inRange, range, colors, surface, months, meetings, toda
   return (
     <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: { md: 'center' }, borderBottom: 1, borderColor: 'divider', py: 1 }}>
       <Box sx={{ width: { md: 280 }, flexShrink: 0, pr: { md: 2 }, minWidth: 0, mb: { xs: 0.75, md: 0 } }}>
-        <Link component={RouterLink} to={`/elus/demandes/${r.id}`} underline="hover" title={r.subject}
+        <Link component={RouterLink} to={`/elus/sujets/${r.id}`} underline="hover" title={r.subject}
           sx={{ display: 'block', fontWeight: 700, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {r.subject}
         </Link>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ color: 'text.secondary', minWidth: 0 }}>
           <Typography variant="body2" noWrap>
-            {r.number ? `${r.number}, ` : 'À trier, '}{STATUS[r.status]?.label}{r.linked_count ? `, +${r.linked_count} associée${r.linked_count > 1 ? 's' : ''}` : ''}
+            {r.number}, {STATUS[r.status]?.label}{r.request_count > 1 ? `, ${r.request_count} salariés` : ''}
           </Typography>
           {late > 0 && (
             <Stack direction="row" spacing={0.25} alignItems="center" sx={{ color: 'text.primary', flexShrink: 0 }}>
@@ -326,10 +329,10 @@ function SubjectTable({ rows }) {
           {rows.map(({ r, item, late, commitments }) => (
             <TableRow key={r.id} hover>
               <TableCell sx={{ minWidth: 200 }}>
-                <Link component={RouterLink} to={`/elus/demandes/${r.id}`} sx={{ fontWeight: 700 }}>{r.subject}</Link>
+                <Link component={RouterLink} to={`/elus/sujets/${r.id}`} sx={{ fontWeight: 700 }}>{r.subject}</Link>
                 {r.kind === 'signalement' && periodLabel(r) && <Typography variant="body2" color="text.secondary">Situation {periodLabel(r)}</Typography>}
               </TableCell>
-              <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.number || 'À trier'}{r.linked_count ? ` (+${r.linked_count})` : ''}</TableCell>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.number}{r.request_count > 1 ? ` (${r.request_count} demandes)` : ''}</TableCell>
               <TableCell>{STATUS[r.status]?.label}</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtShort(r.created_at)}</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.due_date ? fmtShort(r.due_date) : '—'}</TableCell>

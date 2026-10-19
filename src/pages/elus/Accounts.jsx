@@ -333,13 +333,13 @@ function DataCard() {
           </Typography>
           <Typography sx={{ mb: 2 }}>
             {sum == null ? '…' : empty ? <strong>L’espace est vide.</strong>
-              : <>Actuellement : <strong>{sum.requests}</strong> demande{sum.requests > 1 ? 's' : ''}, <strong>{sum.meetings}</strong> réunion{sum.meetings > 1 ? 's' : ''}, <strong>{sum.commitments}</strong> engagement{sum.commitments > 1 ? 's' : ''}.</>}
+              : <>Actuellement : <strong>{sum.requests}</strong> demande{sum.requests > 1 ? 's' : ''}, <strong>{sum.subjects}</strong> sujet{sum.subjects > 1 ? 's' : ''}, <strong>{sum.meetings}</strong> réunion{sum.meetings > 1 ? 's' : ''}, <strong>{sum.commitments}</strong> engagement{sum.commitments > 1 ? 's' : ''}.</>}
           </Typography>
           <Stack spacing={1.5}>
             <DataRow title="Exporter" text="Télécharge toutes les données de l’espace dans un fichier .json.">
               <Button variant="outlined" onClick={doExport} disabled={!!busy || empty}>{busy === 'export' ? 'Export…' : 'Exporter'}</Button>
             </DataRow>
-            <DataRow title="Repartir de zéro" text="Efface les demandes, réunions et engagements. Exportez d’abord si vous voulez les retrouver.">
+            <DataRow title="Repartir de zéro" text="Efface les demandes, sujets, réunions et engagements. Exportez d’abord si vous voulez les retrouver.">
               <Button color="error" variant="outlined" onClick={() => setWipe(true)} disabled={!!busy || empty || sum == null}>Vider l’espace</Button>
             </DataRow>
             <DataRow title="Charger un fichier" text={<>
@@ -353,7 +353,7 @@ function DataCard() {
                 <input hidden type="file" accept=".json,application/json" onChange={(e) => { doImport(e.target.files[0]); e.target.value = '' }} />
               </Button>
             </DataRow>
-            <DataRow title="Exemple AlloCSE" text="Remplit l’espace vide avec un exemple fictif : demandes, signalements, deux réunions, engagements de la direction.">
+            <DataRow title="Exemple AlloCSE" text="Remplit l’espace vide avec un exemple fictif : demandes de salariés, sujets du CSE, deux réunions, engagements de la direction.">
               <Button variant="outlined" disabled={!!busy || !empty} onClick={() => act('sample', loadSample, 'Exemple chargé.')}>
                 {busy === 'sample' ? 'Chargement…' : 'Charger l’exemple'}
               </Button>
@@ -370,7 +370,7 @@ function DataCard() {
         <DialogTitle>Vider l’espace ?</DialogTitle>
         <DialogContent>
           <Typography sx={{ mb: 2 }}>
-            Toutes les demandes ({sum?.requests}), réunions et engagements seront définitivement effacés,
+            Toutes les demandes ({sum?.requests}), sujets, réunions et engagements seront définitivement effacés,
             y compris pour les salariés qui suivent leur demande. Tapez <strong>EFFACER</strong> pour confirmer.
           </Typography>
           <TextField autoFocus fullWidth label="Confirmation" value={confirm} onChange={(e) => setConfirm(e.target.value)} />

@@ -16,17 +16,17 @@ import AddIcon from '@mui/icons-material/Add'
 import AutoAwesomeIcon from '@mui/icons-material/PlaylistAddOutlined'  // génération par modèles, sans IA
 import RepeatIcon from '@mui/icons-material/Repeat'
 import { api, download, fmtDate, MEETING_KINDS } from '../../api'
-import { ErrorAlert, KindChip, Section, StatusChip } from '../../components'
+import { ErrorAlert, KindChip, Section, SubjectStatusChip } from '../../components'
 import { mono } from '../../theme'
 import { RecurrenceFields, SINGLE, fromItem, recurrenceLabel, toRule } from './Recurrence'
-import { RequestRow } from './shared'
+import { SubjectRow } from './shared'
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
 function printAgenda(m) {
   const w = window.open('', '_blank')
   if (!w) return
-  const rows = m.items.map((it) => `<li><strong>${esc(it.title)}</strong>${it.category ? `<br><small>${esc(it.category)}${it.tracking_code ? `, ${esc(it.tracking_code)}` : ''}</small>` : ''}${it.wording ? `<p>${esc(it.wording)}</p>` : ''}${it.outcome ? `<p class="outcome"><em>Relevé de décision :</em> ${esc(it.outcome)}</p>` : ''}</li>`).join('')
+  const rows = m.items.map((it) => `<li><strong>${esc(it.title)}</strong>${it.category ? `<br><small>${esc(it.category)}${it.number ? `, ${esc(it.number)}` : ''}</small>` : ''}${it.wording ? `<p>${esc(it.wording)}</p>` : ''}${it.outcome ? `<p class="outcome"><em>Relevé de décision :</em> ${esc(it.outcome)}</p>` : ''}</li>`).join('')
   w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Ordre du jour</title>
     <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#16213A}
     h1{font-size:24px;margin-bottom:4px}ol{padding-left:22px}li{margin:14px 0}small{color:#5B6B82}p{margin:6px 0 0;white-space:pre-wrap}.outcome{border-left:3px solid #9A6A00;padding-left:10px}</style></head>
@@ -58,7 +58,7 @@ export default function MeetingDetail() {
   const call = async (path, opts, msg) => {
     try { setM(await api(`/meetings/${id}${path}`, opts)); if (msg) setToast(msg); loadProposal() } catch (e) { setError(e.message) }
   }
-  const add = (request_id) => call('/items', { method: 'POST', body: { request_id } }, 'Ajoutée à l’ordre du jour')
+  const add = (subject_id) => call('/items', { method: 'POST', body: { subject_id } }, 'Ajouté à l’ordre du jour')
   const generate = async () => {
     setGenerating(true)
     try {
@@ -80,15 +80,15 @@ export default function MeetingDetail() {
     // La règle n'est envoyée que si elle change : la renvoyer remettrait les occurrences retirées à la main
     const rule = toRule(edit.rec)
     const ruleChanged = JSON.stringify(rule) !== JSON.stringify(toRule(fromItem(edit)))
-    const recurrence = edit.request_id ? {} : { recurring: edit.rec.recurring, recurrence: rule && ruleChanged ? rule : undefined }
-    if (edit.request_id && edit.commit_due) {
+    const recurrence = edit.subject_id ? {} : { recurring: edit.rec.recurring, recurrence: rule && ruleChanged ? rule : undefined }
+    if (edit.subject_id && edit.commit_due) {
       const text = (edit.commit_text || edit.outcome || edit.wording || edit.title).trim()
       try {
-        await api(`/requests/${edit.request_id}/commitments`, { method: 'POST', body: { text, due_date: edit.commit_due, meeting_id: Number(id), public: edit.commit_public !== false } })
+        await api(`/subjects/${edit.subject_id}/commitments`, { method: 'POST', body: { text, due_date: edit.commit_due, meeting_id: Number(id), public: edit.commit_public !== false } })
       } catch (e) { setError(e.message); return }
     }
-    await call(`/items/${edit.id}`, { method: 'PATCH', body: { title: edit.request_id ? undefined : edit.title, wording: edit.wording || '', outcome: edit.outcome || '', discussed: edit.discussed, send_as_answer: sendAsAnswer, ...recurrence } },
-      sendAsAnswer ? 'Réponse envoyée au salarié' : edit.commit_due ? 'Point et engagement enregistrés' : 'Point enregistré')
+    await call(`/items/${edit.id}`, { method: 'PATCH', body: { title: edit.subject_id ? undefined : edit.title, wording: edit.wording || '', outcome: edit.outcome || '', discussed: edit.discussed, send_as_answer: sendAsAnswer, ...recurrence } },
+      sendAsAnswer ? 'Réponse envoyée aux salariés du sujet' : edit.commit_due ? 'Point et engagement enregistrés' : 'Point enregistré')
     setEdit(null)
   }
   const removeItem = (it, stopRecurring) => {
@@ -97,7 +97,7 @@ export default function MeetingDetail() {
       stopRecurring ? 'Point retiré, il ne sera plus repris' : 'Point retiré')
   }
   const remove = async () => {
-    if (!window.confirm('Supprimer cette réunion ? Les demandes non traitées repasseront « En cours d’étude ».')) return
+    if (!window.confirm('Supprimer cette réunion ? Les sujets non traités repasseront « En cours ».')) return
     try { await api(`/meetings/${id}`, { method: 'DELETE' }); navigate('/elus/reunions') } catch (e) { setError(e.message) }
   }
 
@@ -160,18 +160,18 @@ export default function MeetingDetail() {
                       ) : (
                         <>
                           <Stack direction="row" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}>
-                            {it.status && <StatusChip status={it.status} />}
+                            {it.status && <SubjectStatusChip status={it.status} />}
                             {it.kind && <KindChip kind={it.kind} temporality={it.temporality} />}
                             {it.recurring && <Tooltip title={`Repris sur les réunions suivantes du même type : ${recurrenceLabel(it.recurrence).toLowerCase()}`}><Chip size="small" color="primary" variant="outlined" icon={<RepeatIcon />} label={`Récurrent : ${recurrenceLabel(it.recurrence).toLowerCase()}`} sx={{ maxWidth: '100%' }} /></Tooltip>}
                             {it.discussed && <Chip size="small" color="success" variant="outlined" label="Traité" />}
                           </Stack>
-                          {it.request_id
-                            ? <Link component={RouterLink} to={`/elus/demandes/${it.request_id}`} sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{it.title}</Link>
+                          {it.subject_id
+                            ? <Link component={RouterLink} to={`/elus/sujets/${it.subject_id}`} sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{it.title}</Link>
                             : <Typography sx={{ fontWeight: 700 }}>{it.title}</Typography>}
-                          {it.tracking_code && (
+                          {it.number && (
                             <Typography variant="body2" color="text.secondary">
-                              <Box component="span" sx={{ fontFamily: mono }}>{it.number ? `Sujet ${it.number}` : it.tracking_code}</Box>, {it.category}
-                              {it.linked_count > 0 && `, soulevé par ${it.linked_count + 1} salariés`}
+                              <Box component="span" sx={{ fontFamily: mono }}>Sujet {it.number}</Box>, {it.category}
+                              {it.request_count > 1 ? `, soulevé par ${it.request_count} salariés` : it.request_count === 0 ? ', question des élus' : ''}
                             </Typography>
                           )}
                           {it.wording && <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{it.wording}</Typography>}
@@ -215,22 +215,22 @@ export default function MeetingDetail() {
           {editable && (
             <Section title="Proposition">
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Demandes ouvertes pas encore inscrites, classées par priorité, ancienneté et urgence des signalements, avec la formulation proposée pour l’ordre du jour.
+                Sujets en cours pas encore inscrits, classés par priorité, ancienneté, nombre de salariés concernés et urgence, avec la formulation proposée pour l’ordre du jour.
               </Typography>
-              {proposal?.items.length === 0 && <Typography color="text.secondary">Rien à proposer : toutes les demandes ouvertes sont inscrites ou traitées.</Typography>}
+              {proposal?.items.length === 0 && <Typography color="text.secondary">Rien à proposer : tous les sujets en cours sont inscrits ou traités. Les demandes des salariés passent à l’ordre du jour via un sujet.</Typography>}
               <Stack spacing={1}>
                 {proposal?.items.map((p) => (
-                  <RequestRow key={p.request.id} r={p.request}
+                  <SubjectRow key={p.subject.id} s={p.subject}
                     extra={<>
                       {p.reasons.length > 0 && <Typography variant="body2" sx={{ mt: 0.75 }}>{p.reasons.join(', ')}</Typography>}
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, fontStyle: 'italic' }}>{p.wording}</Typography>
                     </>}
-                    action={<Tooltip title="Ajouter à l’ordre du jour"><IconButton color="primary" aria-label="Ajouter à l’ordre du jour" onClick={() => add(p.request.id)}><AddIcon /></IconButton></Tooltip>} />
+                    action={<Tooltip title="Ajouter à l’ordre du jour"><IconButton color="primary" aria-label="Ajouter à l’ordre du jour" onClick={() => add(p.subject.id)}><AddIcon /></IconButton></Tooltip>} />
                 ))}
               </Stack>
               {proposal?.hidden_pending > 0 && (
                 <Alert severity="info" sx={{ mt: 2 }}>
-                  {proposal.hidden_pending} demande(s) en attente ne vous sont pas visibles (choix du demandeur). Les élus autorisés peuvent les inscrire.
+                  {proposal.hidden_pending} sujet(s) en attente ne vous sont pas visibles (accès restreint). Les élus autorisés peuvent les inscrire.
                 </Alert>
               )}
             </Section>
@@ -241,7 +241,7 @@ export default function MeetingDetail() {
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="sm">
         <DialogTitle>Point de l’ordre du jour</DialogTitle>
         <DialogContent>
-          {edit?.request_id
+          {edit?.subject_id
             ? <Typography sx={{ fontWeight: 700, mb: 2 }}>{edit?.title}</Typography>
             : <TextField label="Intitulé" value={edit?.title || ''} disabled={!editable} sx={{ mt: 1, mb: 2 }}
                 onChange={(e) => setEdit({ ...edit, title: e.target.value })} />}
@@ -256,7 +256,7 @@ export default function MeetingDetail() {
           <TextField multiline minRows={4} label="Relevé de décision : ce qui a été décidé ou répondu (repris dans le PV)" value={edit?.outcome || ''}
             onChange={(e) => setEdit({ ...edit, outcome: e.target.value })} />
           <FormControlLabel sx={{ mt: 1 }} control={<Checkbox checked={!!edit?.discussed} onChange={(e) => setEdit({ ...edit, discussed: e.target.checked })} />} label="Point traité en réunion" />
-          {edit?.request_id && (
+          {edit?.subject_id && (
             <Box sx={{ mt: 1.5, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>Engagement de la direction</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
@@ -266,7 +266,7 @@ export default function MeetingDetail() {
                 <TextField type="date" size="small" label="Délai annoncé" InputLabelProps={{ shrink: true }} fullWidth={false}
                   value={edit.commit_due || ''} onChange={(e) => setEdit({ ...edit, commit_due: e.target.value })} sx={{ width: 180 }} />
                 <FormControlLabel control={<Checkbox checked={edit.commit_public !== false} onChange={(e) => setEdit({ ...edit, commit_public: e.target.checked })} />}
-                  label="Visible par le salarié" />
+                  label="Visible des salariés" />
               </Stack>
               {edit.commit_due && (
                 <TextField size="small" multiline sx={{ mt: 1.5 }} label="Engagement (par défaut : le relevé de décision)"
@@ -274,7 +274,7 @@ export default function MeetingDetail() {
               )}
             </Box>
           )}
-          {edit && !edit.request_id && (editable || edit.recurring) && (
+          {edit && !edit.subject_id && (editable || edit.recurring) && (
             <Box sx={{ mt: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>Répétition</Typography>
               <RecurrenceFields value={edit.rec} onChange={(rec) => setEdit({ ...edit, rec })}
@@ -290,8 +290,10 @@ export default function MeetingDetail() {
         <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Button onClick={() => setEdit(null)}>Annuler</Button>
           <Button variant="outlined" onClick={() => saveEdit(false)}>Enregistrer</Button>
-          {edit?.request_id && (
-            <Button variant="contained" disabled={!edit?.outcome?.trim()} onClick={() => saveEdit(true)}>Enregistrer et répondre au salarié</Button>
+          {edit?.subject_id && (
+            <Button variant="contained" disabled={!edit?.outcome?.trim()} onClick={() => saveEdit(true)}>
+              {edit.request_count > 0 ? 'Enregistrer et répondre aux salariés' : 'Enregistrer comme réponse'}
+            </Button>
           )}
         </DialogActions>
       </Dialog>

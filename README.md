@@ -15,9 +15,9 @@ Elle est hébergée gratuitement, sans serveur à soi :
 - Recevoir un **numéro de suivi** (`AC-2026-7KQ4-X9M2`, impossible à deviner). Avec ce numéro, il suit l'avancement, lit la réponse du CSE et peut ajouter des précisions.
 
 **Côté élus, avec un compte validé**
-- Tableau de bord, liste filtrable, prise en charge, priorité, échéance, notes internes.
-- **Tri en sujets** (`S-2026-001`). Une demande devient un *nouveau sujet*, ou est *associée* à un sujet existant quand plusieurs salariés soulèvent le même problème. Un sujet n'occupe qu'un point à l'ordre du jour, sa réponse parvient à tous les demandeurs, et toutes ses demandes partagent le même statut.
-- **Réponse directe** au salarié à tout moment, sans attendre la réunion.
+- Tableau de bord, prise en charge, priorité, échéance, notes internes.
+- **Demandes salariés** : tout ce que les salariés ont écrit. Pour chaque demande : **réponse directe** (par exemple les chèques cadeaux, gérés par le CSE lui-même), ou rattachement à un **sujet du CSE**.
+- **Sujets CSE** (`S-2026-001`) : ce que les élus suivent et portent devant la direction. Un sujet regroupe zéro, une ou plusieurs demandes de salariés (question des élus, ou problème soulevé par plusieurs salariés). Il a sa fiche : description, demandes rattachées, réponse transmise à tous les salariés concernés, notes internes, engagements de la direction, réunions, historique. On peut créer un sujet de zéro, rattacher ou détacher des demandes, fusionner deux sujets.
 - **Préparation des réunions** : la prochaine plénière, la prochaine extraordinaire et les autres réunions planifiées, avec une date proposée.
 - **« Générer l'ordre du jour »** ajoute en un clic :
   - les points fixes (approbation du PV, organisation…) ;
@@ -179,6 +179,7 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
 │   ├── schema.sql              tables, règles d'accès, fonctions (à exécuter une fois)
 │   ├── migration_espaces.sql   mise à jour d'une base déjà installée (conserve les données)
 │   ├── migration_notifications.sql  mise à jour : e-mails aux salariés
+│   ├── migration_sujets.sql    mise à jour : sujets du CSE en fiches à part (convertit les données)
 │   ├── demo.sql                transforme une base en démonstration (projet démo uniquement)
 │   └── reset.sql               remise à zéro avant réinstallation
 ├── public/

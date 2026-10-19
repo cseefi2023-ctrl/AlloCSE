@@ -7,7 +7,7 @@ import { api, fmtDate, fmtShort } from '../../api'
 import { CommitmentChip, ErrorAlert } from '../../components'
 
 // Engagements de la direction sur un sujet : ce qu'elle a promis, pour quand, et si c'est tenu
-export default function Commitments({ r, onChange, onToast }) {
+export default function Commitments({ subject: r, onChange, onToast }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ text: '', due_date: '', meeting_id: '', public: true })
   const [error, setError] = useState(null)
@@ -19,13 +19,12 @@ export default function Commitments({ r, onChange, onToast }) {
   }
   const add = async (e) => {
     e.preventDefault()
-    const ok = await run(() => api(`/requests/${r.id}/commitments`, { method: 'POST', body: { ...form, meeting_id: form.meeting_id || null } }), 'Engagement enregistré')
+    const ok = await run(() => api(`/subjects/${r.id}/commitments`, { method: 'POST', body: { ...form, meeting_id: form.meeting_id || null } }), 'Engagement enregistré')
     if (ok) { setForm({ text: '', due_date: '', meeting_id: '', public: true }); setOpen(false) }
   }
   const update = (c, body, msg) => run(() => api(`/commitments/${c.id}`, { method: 'PATCH', body }), msg)
   const remove = (c) => window.confirm('Retirer cet engagement ?') && run(() => api(`/commitments/${c.id}`, { method: 'DELETE' }), 'Engagement retiré')
 
-  const onSubject = r.parent ? ` du sujet ${r.parent.number || ''}` : ''
   return (
     <Card sx={{ mb: 4 }}>
       <CardContent>
@@ -34,7 +33,7 @@ export default function Commitments({ r, onChange, onToast }) {
           {!open && <Button size="small" variant="outlined" onClick={() => setOpen(true)}>Ajouter</Button>}
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Quand la direction répond avec un délai, notez-le ici{onSubject} : il apparaît dans le suivi (Gantt) jusqu’à ce qu’il soit tenu.
+          Quand la direction répond avec un délai, notez-le ici : il apparaît dans le suivi (Gantt) jusqu’à ce qu’il soit tenu.
         </Typography>
 
         {r.commitments.length === 0 && !open && <Typography color="text.secondary">Aucun engagement enregistré.</Typography>}
@@ -48,7 +47,7 @@ export default function Commitments({ r, onChange, onToast }) {
                     <CommitmentChip c={c} />
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>Délai : {fmtDate(c.due_date)}</Typography>
                     {c.meeting && <Typography variant="body2" color="text.secondary">annoncé en réunion du {fmtShort(c.meeting.meeting_date)}</Typography>}
-                    {!c.public && <Typography variant="body2" color="text.secondary">(non visible du salarié)</Typography>}
+                    {!c.public && <Typography variant="body2" color="text.secondary">(non visible des salariés)</Typography>}
                   </Stack>
                 </Box>
                 <Tooltip title="Retirer"><IconButton size="small" aria-label="Retirer l’engagement" onClick={() => remove(c)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
@@ -77,11 +76,11 @@ export default function Commitments({ r, onChange, onToast }) {
                 <TextField select label="Annoncé en réunion (facultatif)" value={form.meeting_id} InputLabelProps={{ shrink: true }}
                   SelectProps={{ displayEmpty: true }} onChange={(e) => setForm({ ...form, meeting_id: e.target.value })}>
                   <MenuItem value="">Hors réunion</MenuItem>
-                  {r.agenda.map((a) => <MenuItem key={a.meeting_id} value={a.meeting_id}>{a.meeting_title}, {fmtShort(a.meeting_date)}</MenuItem>)}
+                  {r.agenda.map((a) => <MenuItem key={a.item_id} value={a.meeting_id}>{a.meeting_title}, {fmtShort(a.meeting_date)}</MenuItem>)}
                 </TextField>
               </Stack>
               <FormControlLabel control={<Checkbox checked={form.public} onChange={(e) => setForm({ ...form, public: e.target.checked })} />}
-                label="Visible par le salarié dans son suivi" />
+                label="Visible des salariés dans leur suivi" />
               <Stack direction="row" spacing={1}>
                 <Button type="submit" variant="contained" disabled={busy || !form.text.trim() || !form.due_date}>Enregistrer l’engagement</Button>
                 <Button onClick={() => setOpen(false)}>Annuler</Button>

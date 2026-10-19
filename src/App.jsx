@@ -18,7 +18,9 @@ import RequestDetail from './pages/elus/RequestDetail'
 import Meetings from './pages/elus/Meetings'
 import MeetingDetail from './pages/elus/MeetingDetail'
 import Gantt from './pages/elus/Gantt'
-import NewRequest from './pages/elus/NewRequest'
+import NewSubject from './pages/elus/NewSubject'
+import SubjectList from './pages/elus/SubjectList'
+import SubjectDetail from './pages/elus/SubjectDetail'
 import Accounts from './pages/elus/Accounts'
 import Profile from './pages/elus/Profile'
 
@@ -97,8 +99,11 @@ export default function App() {
             <Route path="elus" element={authChecked ? <RequireElu><EluLayout /></RequireElu> : <Loading />}>
               <Route index element={<Dashboard />} />
               <Route path="demandes" element={<RequestList />} />
-              <Route path="demandes/nouvelle" element={<NewRequest />} />
+              <Route path="demandes/nouvelle" element={<Navigate to="/elus/sujets/nouveau" replace />} />
               <Route path="demandes/:id" element={<RequestDetail />} />
+              <Route path="sujets" element={<SubjectList />} />
+              <Route path="sujets/nouveau" element={<NewSubject />} />
+              <Route path="sujets/:id" element={<SubjectDetail />} />
               <Route path="suivi" element={<Gantt />} />
               <Route path="reunions" element={<Meetings />} />
               <Route path="reunions/:id" element={<MeetingDetail />} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, CircularProgress, Divider, FormControlLabel, Grid, Link,
   MenuItem, Snackbar, Stack, Tab, Tabs, TextField, Typography,
@@ -7,14 +7,13 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useApp } from '../../App'
 import { api, fmtDate, fmtShort, periodLabel, STATUS, STATUS_ORDER } from '../../api'
-import { ErrorAlert, KindChip, MessageList, Section, StatusChip, StatusTrack, Timeline } from '../../components'
+import { CommitmentChip, ErrorAlert, KindChip, MessageList, Section, StatusChip, StatusTrack, SubjectStatusChip, Timeline } from '../../components'
 import { mono } from '../../theme'
 import { SubjectChip } from './shared'
-import Commitments from './Commitments'
 
 const MODES = {
   answer: { label: 'Répondre', hint: 'Réponse officielle : le salarié la lit avec son numéro de suivi. Inutile d’attendre la réunion si vous avez la réponse.', button: 'Envoyer la réponse' },
-  message: { label: 'Question au salarié', hint: 'Demander une précision au salarié, sans clore le sujet.', button: 'Envoyer le message' },
+  message: { label: 'Question au salarié', hint: 'Demander une précision au salarié, sans répondre encore.', button: 'Envoyer le message' },
   internal: { label: 'Note interne', hint: 'Visible uniquement par les élus autorisés à voir cette demande.', button: 'Ajouter la note' },
 }
 
@@ -23,33 +22,29 @@ export default function RequestDetail() {
   const { user } = useApp()
   const [r, setR] = useState(null)
   const [users, setUsers] = useState([])
-  const [meetings, setMeetings] = useState([])
   const [error, setError] = useState(null)
   const [mode, setMode] = useState('answer')
   const [body, setBody] = useState('')
   const [closeIt, setCloseIt] = useState(false)
-  const [alsoLinked, setAlsoLinked] = useState(true)
-  const [others, setOthers] = useState([])
+  const [subjects, setSubjects] = useState([])
   const [pick, setPick] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [meetingId, setMeetingId] = useState('')
   const [toast, setToast] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     setR(null); setError(null)
     api(`/requests/${id}`).then(setR).catch((e) => setError(e.message))
     api('/users').then(setUsers).catch(() => {})
-    api('/meetings').then((ms) => setMeetings(ms.filter((m) => m.status === 'planifiee'))).catch(() => {})
-    api('/requests', { query: { open_only: true } }).then(setOthers).catch(() => {})
+    api('/subjects', { query: { open_only: true } }).then(setSubjects).catch(() => {})
     setPick(null)
   }, [id])
 
-  // Tri : nouveau sujet, association à un sujet existant, dissociation
-  const triage = async (body, msg, otherId) => {
+  // Rattacher à un sujet existant, ou détacher
+  const link = async (subjectId, msg) => {
     try {
-      await api(`/requests/${otherId || id}/triage`, body === null ? { method: 'DELETE' } : { method: 'POST', body })
-      setR(await api(`/requests/${id}`)); setPick(null); setToast(msg)
-      api('/requests', { query: { open_only: true } }).then(setOthers).catch(() => {})
+      setR(await api(`/requests/${id}/subject`, { method: 'POST', body: { subject_id: subjectId } }))
+      setPick(null); setToast(msg)
     } catch (e) { setError(e.message) }
   }
 
@@ -63,33 +58,19 @@ export default function RequestDetail() {
     try {
       setR(await api(`/requests/${id}/messages`, {
         method: 'POST',
-        body: { body, internal: mode === 'internal', is_answer: mode === 'answer', close: mode === 'answer' && closeIt, also_linked: alsoLinked },
+        body: { body, internal: mode === 'internal', is_answer: mode === 'answer', close: mode === 'answer' && closeIt },
       }))
       setBody(''); setCloseIt(false)
       setToast(mode === 'internal' ? 'Note ajoutée' : 'Envoyé au salarié')
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
 
-  const addToAgenda = async () => {
-    try {
-      await api(`/meetings/${meetingId}/items`, { method: 'POST', body: { request_id: r.id } })
-      setR(await api(`/requests/${id}`)); setMeetingId(''); setToast('Inscrite à l’ordre du jour')
-    } catch (e) { setError(e.message) }
-  }
-
   if (!r) return error ? <ErrorAlert error={error} /> : <Box sx={{ py: 8, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
 
   const allowed = users.filter((u) => u.is_active && (r.visible_to_all || r.viewers.some((v) => v.id === u.id)))
   const closed = r.status === 'close'
-  const plannedIds = new Set(r.agenda.map((a) => a.meeting_id))
-  const linkedTotal = r.linked.length + r.linked_hidden
-  const kindLabel = (o) => (o.kind === 'signalement' ? 'Signalement' : 'Demande')
-  const optionLabel = (o) => `${o.number || 'À trier'} · ${kindLabel(o)} · ${o.subject} (${o.tracking_code})`
-  // Sujets auxquels associer cette demande (sujets principaux uniquement)
-  const subjects = others.filter((o) => o.id !== r.id && !o.parent_id)
-    .sort((a, b) => (!!b.number - !!a.number) || (b.id - a.id))
-  // Demandes à rattacher à ce sujet
-  const attachable = others.filter((o) => o.id !== r.id && o.parent_id !== r.id && !o.linked_count)
+  const ref = r.subject_ref
+  const subjectLabel = (o) => `${o.number} · ${o.title}`
 
   return (
     <>
@@ -110,12 +91,12 @@ export default function RequestDetail() {
       <Grid container spacing={4}>
         <Grid item xs={12} md={8}>
           <Section title="Échanges">
-            <MessageList viewer="elu" messages={[{ id: 'orig', author_type: r.origin === 'elu' ? 'elu' : 'salarie', author: r.origin === 'elu' ? r.created_by : null, body: r.description, created_at: r.created_at, internal: false, is_answer: false }, ...r.messages]} />
+            <MessageList viewer="elu" messages={[{ id: 'orig', author_type: 'salarie', author: null, body: r.description, created_at: r.created_at, internal: false, is_answer: false }, ...r.messages]} />
           </Section>
 
           <Card component="form" onSubmit={send} sx={{ mb: 4 }}>
             <Tabs value={mode} onChange={(_, v) => setMode(v)} variant="scrollable" allowScrollButtonsMobile sx={{ borderBottom: 1, borderColor: 'divider' }}>
-              {Object.entries(MODES).filter(([k]) => !(r.origin === 'elu' && k === 'message')).map(([k, m]) => <Tab key={k} value={k} label={m.label} disabled={closed && k !== 'internal'} sx={{ textTransform: 'none', fontWeight: 700 }} />)}
+              {Object.entries(MODES).map(([k, m]) => <Tab key={k} value={k} label={m.label} disabled={closed && k !== 'internal'} sx={{ textTransform: 'none', fontWeight: 700 }} />)}
             </Tabs>
             <CardContent>
               {closed && mode !== 'internal'
@@ -126,13 +107,7 @@ export default function RequestDetail() {
                   <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={1} sx={{ mt: 1.5 }}>
                     {mode === 'answer'
                       ? (
-                        <Stack>
-                          <FormControlLabel control={<Checkbox checked={closeIt} onChange={(e) => setCloseIt(e.target.checked)} />} label="Clôturer la demande" />
-                          {linkedTotal > 0 && (
-                            <FormControlLabel control={<Checkbox checked={alsoLinked} onChange={(e) => setAlsoLinked(e.target.checked)} />}
-                              label={linkedTotal > 1 ? `Envoyer aussi aux ${linkedTotal} demandes associées` : 'Envoyer aussi à la demande associée'} />
-                          )}
-                        </Stack>
+                        <FormControlLabel control={<Checkbox checked={closeIt} onChange={(e) => setCloseIt(e.target.checked)} />} label="Clôturer la demande" />
                       ) : <span />}
                     <Button type="submit" variant="contained" disabled={busy || !body.trim()}>{MODES[mode].button}</Button>
                   </Stack>
@@ -140,7 +115,21 @@ export default function RequestDetail() {
             </CardContent>
           </Card>
 
-          <Commitments r={r} onChange={setR} onToast={setToast} />
+          {ref && !ref.restricted && r.commitments.length > 0 && (
+            <Section title="Engagements de la direction" action={<Button size="small" component={RouterLink} to={`/elus/sujets/${ref.id}`}>Gérer sur le sujet</Button>}>
+              <Stack spacing={1}>
+                {r.commitments.map((c) => (
+                  <Card key={c.id} sx={{ p: 1.5, borderColor: c.late ? 'error.main' : undefined }}>
+                    <Typography sx={{ whiteSpace: 'pre-wrap' }}>{c.text}</Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                      <CommitmentChip c={c} />
+                      <Typography variant="body2">Délai : {fmtDate(c.due_date)}</Typography>
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
+            </Section>
+          )}
 
           <Section title="Historique">
             <Card><CardContent><Timeline events={[...r.events].reverse()} showInternal /></CardContent></Card>
@@ -150,57 +139,47 @@ export default function RequestDetail() {
         <Grid item xs={12} md={4}>
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>Sujet</Typography>
-              {!r.number && (
+              <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>Sujet du CSE</Typography>
+              {!ref && (
                 <Stack spacing={1.5}>
                   <Typography variant="body2" color="text.secondary">
-                    À trier : nouveau sujet, ou même sujet qu’une demande ou un signalement déjà reçu ? Le numéro de sujet est attribué à cette décision.
+                    {r.status === 'nouvelle'
+                      ? 'À trier. Vous pouvez répondre directement au salarié. Si la question doit être suivie ou portée devant la direction, créez un sujet ou rattachez-la à un sujet existant.'
+                      : 'Aucun sujet : la demande est traitée directement avec le salarié.'}
                   </Typography>
-                  <Button variant="contained" onClick={() => triage({}, 'Nouveau sujet créé')}>Nouveau sujet</Button>
-                  <Autocomplete size="small" options={subjects} value={pick} onChange={(_, v) => setPick(v)}
-                    getOptionLabel={optionLabel} isOptionEqualToValue={(a, b) => a.id === b.id}
-                    renderInput={(params) => <TextField {...params} label="Associer à un sujet existant" />} />
-                  <Button variant="outlined" disabled={!pick} onClick={() => triage({ parent_id: pick.id }, 'Demande associée')}>Associer</Button>
+                  {!closed && <Button variant="contained" onClick={() => navigate(`/elus/sujets/nouveau?demande=${r.id}`)}>Créer un sujet</Button>}
+                  {!closed && <>
+                    <Autocomplete size="small" options={subjects} value={pick} onChange={(_, v) => setPick(v)}
+                      getOptionLabel={subjectLabel} isOptionEqualToValue={(a, b) => a.id === b.id}
+                      noOptionsText="Aucun sujet en cours"
+                      renderInput={(params) => <TextField {...params} label="Rattacher à un sujet existant" />} />
+                    <Button variant="outlined" disabled={!pick} onClick={() => link(pick.id, 'Demande rattachée au sujet')}>Rattacher</Button>
+                  </>}
                 </Stack>
               )}
-              {r.number && r.parent_id && (
+              {ref && ref.restricted && (
                 <Stack spacing={1.5}>
-                  <Typography sx={{ fontFamily: mono, fontWeight: 700, fontSize: '1.25rem' }}>{r.number}</Typography>
-                  {r.parent ? (
-                    <Typography variant="body2">
-                      Associée au {r.parent.kind === 'signalement' ? 'signalement' : 'sujet'}{' '}
-                      <Link component={RouterLink} to={`/elus/demandes/${r.parent.id}`} sx={{ fontWeight: 700 }}>{r.parent.subject}</Link>
-                      {' '}(<Box component="span" sx={{ fontFamily: mono }}>{r.parent.tracking_code}</Box>). Elle est traitée avec lui : ordre du jour, réponse, statut.
-                    </Typography>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">Associée à un sujet dont le demandeur a restreint l’accès.</Typography>
-                  )}
-                  <Button variant="outlined" onClick={() => triage(null, 'Demande dissociée : à trier')}>Dissocier</Button>
+                  <Typography sx={{ fontFamily: mono, fontWeight: 700 }}>{ref.number}</Typography>
+                  <Typography variant="body2" color="text.secondary">Rattachée à un sujet réservé à d’autres élus.</Typography>
                 </Stack>
               )}
-              {r.number && !r.parent_id && (
+              {ref && !ref.restricted && (
                 <Stack spacing={1.5}>
-                  <Typography sx={{ fontFamily: mono, fontWeight: 700, fontSize: '1.25rem' }}>{r.number}</Typography>
-                  {linkedTotal === 0
-                    ? <Typography variant="body2" color="text.secondary">Aucune autre demande associée.</Typography>
-                    : (
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-                          Soulevé aussi par {linkedTotal} autre{linkedTotal > 1 ? 's' : ''} demande{linkedTotal > 1 ? 's' : ''}
-                        </Typography>
-                        {r.linked.map((c) => (
-                          <Typography key={c.id} variant="body2">
-                            <Link component={RouterLink} to={`/elus/demandes/${c.id}`}>{c.subject}</Link>
-                            <Box component="span" sx={{ color: 'text.secondary' }}>{` · ${kindLabel(c)} · `}<Box component="span" sx={{ fontFamily: mono }}>{c.tracking_code}</Box></Box>
-                          </Typography>
-                        ))}
-                        {r.linked_hidden > 0 && <Typography variant="body2" color="text.secondary">et {r.linked_hidden} à accès restreint</Typography>}
-                      </Box>
-                    )}
-                  <Autocomplete size="small" options={attachable} value={pick} onChange={(_, v) => setPick(v)}
-                    getOptionLabel={optionLabel} isOptionEqualToValue={(a, b) => a.id === b.id}
-                    renderInput={(params) => <TextField {...params} label="Associer une autre demande à ce sujet" />} />
-                  <Button variant="outlined" disabled={!pick} onClick={() => triage({ parent_id: r.id }, 'Demande associée à ce sujet', pick.id)}>Associer</Button>
+                  <Box>
+                    <Typography sx={{ fontFamily: mono, fontWeight: 700 }}>{ref.number}</Typography>
+                    <Link component={RouterLink} to={`/elus/sujets/${ref.id}`} sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{ref.title}</Link>
+                    <Box sx={{ mt: 0.75 }}><SubjectStatusChip status={ref.status} /></Box>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    Ordre du jour, réponse de la direction et engagements se gèrent sur la fiche du sujet. La réponse au sujet parvient à ce salarié.
+                  </Typography>
+                  {r.agenda.map((a) => (
+                    <Box key={a.item_id}>
+                      <Link component={RouterLink} to={`/elus/reunions/${a.meeting_id}`} sx={{ fontWeight: 700 }}>{a.meeting_title}</Link>
+                      <Typography variant="body2" color="text.secondary">{fmtShort(a.meeting_date)}{a.discussed ? ', traité' : ''}</Typography>
+                    </Box>
+                  ))}
+                  <Button variant="outlined" onClick={() => window.confirm('Détacher cette demande de son sujet ?') && link(null, 'Demande détachée du sujet')}>Détacher du sujet</Button>
                 </Stack>
               )}
             </CardContent>
@@ -242,46 +221,10 @@ export default function RequestDetail() {
             </CardContent>
           </Card>
 
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>Ordre du jour</Typography>
-              {r.agenda.length === 0 && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Jamais inscrite à une réunion.</Typography>}
-              {r.agenda.map((a) => (
-                <Box key={a.meeting_id} sx={{ mb: 1.5 }}>
-                  <Link component={RouterLink} to={`/elus/reunions/${a.meeting_id}`} sx={{ fontWeight: 700 }}>{a.meeting_title}</Link>
-                  <Typography variant="body2" color="text.secondary">{fmtShort(a.meeting_date)}{a.discussed ? ', traitée' : ''}</Typography>
-                  {a.outcome && <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>{a.outcome}</Typography>}
-                </Box>
-              ))}
-              {r.parent_id && (
-                <Typography variant="body2" color="text.secondary">Passe à l’ordre du jour avec son sujet.</Typography>
-              )}
-              {!closed && !r.parent_id && (
-                meetings.filter((m) => !plannedIds.has(m.id)).length > 0 ? (
-                  <Stack direction="row" spacing={1}>
-                    <TextField select size="small" label="Réunion" value={meetingId} onChange={(e) => setMeetingId(e.target.value)}>
-                      {meetings.filter((m) => !plannedIds.has(m.id)).map((m) => <MenuItem key={m.id} value={m.id}>{m.title}, {fmtShort(m.meeting_date)}</MenuItem>)}
-                    </TextField>
-                    <Button variant="contained" onClick={addToAgenda} disabled={!meetingId}>Inscrire</Button>
-                  </Stack>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    Aucune réunion planifiée disponible. <Link component={RouterLink} to="/elus/reunions">Planifier une réunion</Link>
-                  </Typography>
-                )
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardContent>
               <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>Demandeur</Typography>
-              {r.origin === 'elu' ? (
-                <>
-                  <Typography>{r.created_by?.full_name || r.requester_name}</Typography>
-                  <Typography variant="body2" color="text.secondary">Question saisie par un élu du CSE</Typography>
-                </>
-              ) : r.anonymous ? <Typography>Anonyme</Typography> : (
+              {r.anonymous ? <Typography>Anonyme</Typography> : (
                 <>
                   <Typography>{r.requester_name || 'Nom non renseigné'}</Typography>
                   {r.requester_service && <Typography variant="body2" color="text.secondary">{r.requester_service}</Typography>}

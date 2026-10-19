@@ -3,11 +3,20 @@ import { Alert, Box, Button, Chip, IconButton, Radio, RadioGroup, Snackbar, Stac
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import ShareIcon from '@mui/icons-material/Share'
 import LockIcon from '@mui/icons-material/LockOutlined'
-import { STATUS, STATUS_ORDER, fmtDateTime, trackingUrl } from './api'
+import { STATUS, STATUS_ORDER, SUBJECT_STATUS, fmtDateTime, trackingUrl } from './api'
 import { mono, palette } from './theme'
 
 export function StatusChip({ status, size = 'small' }) {
   const s = STATUS[status]
+  if (!s) return null
+  return (
+    <Chip size={size} label={s.label}
+      sx={{ bgcolor: `${s.color}1F`, color: s.color, border: `1px solid ${s.color}55` }} />
+  )
+}
+
+export function SubjectStatusChip({ status, size = 'small' }) {
+  const s = SUBJECT_STATUS[status]
   if (!s) return null
   return (
     <Chip size={size} label={s.label}

@@ -93,10 +93,27 @@ const ROUTES = [
       mine: truthy(q.mine),
       open_only: truthy(q.open_only),
       to_triage: truthy(q.to_triage),
+      without_subject: truthy(q.without_subject),
     },
   })],
-  ['POST', /^\/requests$/, (_, b) => rpc('create_elu_request', { p: b })],
-  ['POST', /^\/requests\/(\d+)\/commitments$/, ([id], b) => rpc('add_commitment', { p_request_id: Number(id), p: b })],
+  ['POST', /^\/requests\/(\d+)\/subject$/, ([id], b) => rpc('link_request', { p_request_id: Number(id), p_subject_id: b?.subject_id ?? null })],
+
+  ['GET', /^\/subjects$/, (_, __, q) => rpc('search_subjects', {
+    p: {
+      status: q.status ? String(q.status).split(',') : null,
+      q: q.q || null,
+      mine: truthy(q.mine),
+      open_only: truthy(q.open_only),
+    },
+  })],
+  ['POST', /^\/subjects$/, (_, b) => rpc('create_subject', { p: b })],
+  ['GET', /^\/subjects\/(\d+)$/, ([id]) => rpc('get_subject', { p_id: Number(id) })],
+  ['PATCH', /^\/subjects\/(\d+)$/, ([id], b) => rpc('update_subject', { p_id: Number(id), p: b })],
+  ['DELETE', /^\/subjects\/(\d+)$/, ([id]) => rpc('delete_subject', { p_id: Number(id) }).then(() => null)],
+  ['POST', /^\/subjects\/(\d+)\/requests$/, ([id], b) => rpc('add_subject_requests', { p_id: Number(id), p: b })],
+  ['POST', /^\/subjects\/(\d+)\/notes$/, ([id], b) => rpc('add_subject_note', { p_id: Number(id), p: b })],
+  ['POST', /^\/subjects\/(\d+)\/merge$/, ([id], b) => rpc('merge_subjects', { p_id: Number(id), p_into: Number(b.into) })],
+  ['POST', /^\/subjects\/(\d+)\/commitments$/, ([id], b) => rpc('add_commitment', { p_subject_id: Number(id), p: b })],
   ['PATCH', /^\/commitments\/(\d+)$/, ([id], b) => rpc('update_commitment', { p_id: Number(id), p: b })],
   ['DELETE', /^\/commitments\/(\d+)$/, ([id]) => rpc('delete_commitment', { p_id: Number(id) })],
   ['GET', /^\/requests\/stats$/, () => rpc('dashboard_stats')],
@@ -104,8 +121,6 @@ const ROUTES = [
   ['GET', /^\/requests\/(\d+)$/, ([id]) => rpc('get_request', { p_id: Number(id) })],
   ['PATCH', /^\/requests\/(\d+)$/, ([id], b) => rpc('update_request', { p_id: Number(id), p: b })],
   ['POST', /^\/requests\/(\d+)\/messages$/, ([id], b) => rpc('add_message', { p_id: Number(id), p: b })],
-  ['POST', /^\/requests\/(\d+)\/triage$/, ([id], b) => rpc('triage', { p_id: Number(id), p_parent_id: b?.parent_id ?? null })],
-  ['DELETE', /^\/requests\/(\d+)\/triage$/, ([id]) => rpc('untriage', { p_id: Number(id) })],
 
   ['GET', /^\/meetings$/, () => rpc('list_meetings')],
   ['POST', /^\/meetings$/, (_, b) => rpc('create_meeting', { p: b })],
@@ -263,6 +278,15 @@ export const STATUS = {
   close: { label: 'Clôturée', color: '#3F4756' },
 }
 export const STATUS_ORDER = ['nouvelle', 'en_cours', 'inscrite_odj', 'repondue', 'close']
+
+// Sujets du CSE
+export const SUBJECT_STATUS = {
+  ouvert: { label: 'En cours', color: '#2F5FA8' },
+  inscrit_odj: { label: 'À l’ordre du jour', color: '#9A6A00' },
+  repondu: { label: 'Réponse apportée', color: '#2E7D5B' },
+  clos: { label: 'Clos', color: '#5B6B82' },
+}
+export const SUBJECT_STATUS_ORDER = ['ouvert', 'inscrit_odj', 'repondu', 'clos']
 
 export const MEETING_KINDS = { ordinaire: 'Plénière (ordinaire)', extraordinaire: 'Extraordinaire', autre: 'Autre réunion' }
 
