@@ -380,3 +380,6 @@ revoke execute on function public.admin_data_summary(), public.admin_wipe_data(t
 revoke execute on all functions in schema private from public, anon, authenticated;
 grant execute on function private.request_summary(public.requests), private.elu_json(uuid),
   private.subject_number_of(public.requests) to authenticated;
+
+-- L'API de Supabase relit la liste des fonctions tout de suite
+notify pgrst, 'reload schema';
