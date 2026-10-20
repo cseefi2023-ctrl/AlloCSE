@@ -14,6 +14,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import { useApp } from '../App'
 import { Logo, ModeToggle } from './PublicLayout'
 import { DemoBanner } from '../components'
+import { VERSION_LABEL } from '../version'
 
 const DRAWER = 240
 
@@ -61,6 +62,8 @@ export default function EluLayout() {
             {!desktop && user.role === 'admin' && <MenuItem onClick={() => { setMenu(null); navigate('/elus/comptes') }}>Élus et réglages</MenuItem>}
             <MenuItem onClick={() => { setMenu(null); navigate('/') }}>Voir l’espace salarié</MenuItem>
             <MenuItem onClick={async () => { setMenu(null); await logout(); navigate('/') }}>Se déconnecter</MenuItem>
+            <Divider />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 2, pt: 1, pb: 0.5 }}>{VERSION_LABEL}</Typography>
           </Menu>
         </Toolbar>
       </AppBar>

@@ -6,6 +6,7 @@ import { useApp } from '../App'
 import { palette } from '../theme'
 import { tenant } from '../tenant'
 import { DemoBanner } from '../components'
+import { VERSION_LABEL } from '../version'
 
 export function Logo({ to = '/', light = false }) {
   return (
@@ -64,6 +65,7 @@ export default function PublicLayout() {
             CSE {config?.organisation || ''}
             {config?.contact && <> — <Link href={`mailto:${config.contact}`}>{config.contact}</Link></>}
           </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>{VERSION_LABEL}</Typography>
         </Container>
       </Box>
     </Box>

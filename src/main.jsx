@@ -15,6 +15,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 )
 
+// Champs de date : un clic n'importe où dans le champ ouvre le calendrier
+// (sinon Chrome ne sélectionne que « jj » et le calendrier ne s'ouvre que par l'icône)
+document.addEventListener('click', (e) => {
+  const el = e.target
+  if (el instanceof HTMLInputElement && el.type === 'date' && !el.disabled && !el.readOnly) {
+    try { el.showPicker?.() } catch { /* navigateur sans showPicker : saisie au clavier */ }
+  }
+})
+
 // Installable sur téléphone (GitHub Pages est en HTTPS)
 if ('serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}))
