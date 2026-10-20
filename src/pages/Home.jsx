@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { Box, Button, Card, CardActionArea, IconButton, InputBase, Stack, Tooltip, Typography } from '@mui/material'
+import CheckIcon from '@mui/icons-material/Check'
+import QuestionMarkIcon from '@mui/icons-material/QuestionMark'
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import CloseIcon from '@mui/icons-material/Close'
-import { myCodes, fmtDate } from '../api'
+import { api, myCodes, fmtDate, STATUS } from '../api'
 import { mono, palette } from '../theme'
 import { tenant } from '../tenant'
 
@@ -11,6 +14,18 @@ export default function Home() {
   const navigate = useNavigate()
   const [code, setCode] = useState('')
   const [codes, setCodes] = useState(myCodes.list())
+  const [states, setStates] = useState({})
+
+  // État de chaque demande déposée depuis cet appareil (lu avec son numéro de suivi)
+  useEffect(() => {
+    let alive = true
+    for (const c of myCodes.list()) {
+      api(`/public/requests/${encodeURIComponent(c.code)}`)
+        .then((d) => { if (alive) setStates((s) => ({ ...s, [c.code]: ticketState(d) })) })
+        .catch((e) => { if (alive && e.status === 404) setStates((s) => ({ ...s, [c.code]: TICKET.gone })) })
+    }
+    return () => { alive = false }
+  }, [])
 
   const track = (e) => {
     e.preventDefault()
@@ -64,29 +79,59 @@ export default function Home() {
             Mémorisées uniquement sur ce téléphone ou cet ordinateur.
           </Typography>
           <Stack spacing={1}>
-            {codes.map((c) => (
-              <Card key={c.code}>
-                <Stack direction="row" alignItems="center">
-                  <CardActionArea component={RouterLink} to={`/suivi/${c.code}`} sx={{ p: 2 }}>
-                    <Typography sx={{ fontFamily: mono, fontWeight: 600 }}>{c.code}</Typography>
-                    <Typography variant="body2" color="text.secondary" noWrap>
-                      {c.subject}, le {fmtDate(c.date)}
-                    </Typography>
-                  </CardActionArea>
-                  <Tooltip title="Retirer de cette liste">
-                    <IconButton aria-label={`Retirer ${c.code} de la liste`} sx={{ mx: 1 }}
-                      onClick={() => { myCodes.remove(c.code); setCodes(myCodes.list()) }}>
-                      <CloseIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </Card>
-            ))}
+            {codes.map((c) => {
+              const st = states[c.code]
+              return (
+                <Card key={c.code} sx={st && st.tint ? { borderColor: st.color, bgcolor: st.tint } : undefined}>
+                  <Stack direction="row" alignItems="center">
+                    <CardActionArea component={RouterLink} to={`/suivi/${c.code}`} sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.75, justifyContent: 'flex-start' }}>
+                      <Box aria-hidden sx={{
+                        width: 34, height: 34, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center',
+                        bgcolor: st ? st.color : 'action.disabledBackground', color: '#fff',
+                      }}>
+                        {st ? st.icon : null}
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontFamily: mono, fontWeight: 600 }}>{c.code}</Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {c.subject}, le {fmtDate(c.date)}
+                        </Typography>
+                        {st && <Typography variant="body2" sx={{ fontWeight: 700, color: st.color }}>{st.label}</Typography>}
+                      </Box>
+                    </CardActionArea>
+                    <Tooltip title="Retirer de cette liste">
+                      <IconButton aria-label={`Retirer ${c.code} de la liste`} sx={{ mx: 1 }}
+                        onClick={() => { myCodes.remove(c.code); setCodes(myCodes.list()) }}>
+                        <CloseIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Card>
+              )
+            })}
           </Stack>
         </Box>
       )}
     </>
   )
+}
+
+// Pastille de l'historique : traitée (vert ✓), question du CSE en attente (orange ?), en cours (bleu …)
+const TICKET = {
+  done: { color: '#2E7D5B', tint: 'rgba(46,125,91,0.13)', icon: <CheckIcon fontSize="small" /> },
+  question: { color: '#C2410C', tint: 'rgba(194,65,12,0.11)', icon: <QuestionMarkIcon fontSize="small" />, label: 'Le CSE vous a posé une question' },
+  progress: { color: '#2F5FA8', icon: <MoreHorizIcon fontSize="small" /> },
+  gone: { color: '#8A93A3', icon: <CloseIcon fontSize="small" />, label: 'Demande introuvable (supprimée)' },
+}
+
+function ticketState(d) {
+  if (d.status === 'repondue' || d.status === 'close') {
+    return { ...TICKET.done, label: d.status === 'close' ? 'Traitée et clôturée' : 'Le CSE a répondu' }
+  }
+  const msgs = d.messages || []
+  const last = msgs[msgs.length - 1]
+  if (last && last.author_type === 'elu' && !last.is_answer) return TICKET.question
+  return { ...TICKET.progress, label: STATUS[d.status]?.label || 'En cours' }
 }
 
 function ActionCard({ to, icon, title, text, primary }) {
