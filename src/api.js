@@ -40,6 +40,16 @@ export const myCodes = {
   },
 }
 
+// Coordonnées du salarié retenues sur cet appareil (nom, service, e-mail), pour ne pas les retaper
+const IDENTITY_KEY = CODES_KEY + ':identite'
+export const myIdentity = {
+  get() {
+    try { return JSON.parse(safeGet(IDENTITY_KEY) || 'null') } catch { return null }
+  },
+  save(v) { safeSet(IDENTITY_KEY, JSON.stringify(v)) },
+  clear() { try { localStorage.removeItem(IDENTITY_KEY) } catch { /* stockage indisponible */ } },
+}
+
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status }
 }

@@ -5,7 +5,7 @@ import {
   Radio, RadioGroup, Stack, Switch, TextField, Typography,
 } from '@mui/material'
 import { useApp } from '../App'
-import { api, myCodes } from '../api'
+import { api, myCodes, myIdentity } from '../api'
 import { ErrorAlert, KindChoice, TicketCode } from '../components'
 
 function Fieldset({ legend, hint, children }) {
@@ -21,10 +21,12 @@ function Fieldset({ legend, hint, children }) {
 export default function Submit() {
   const { config } = useApp()
   const [params] = useSearchParams()
+  const saved = myIdentity.get()
+  const [remember, setRemember] = useState(true)
   const [form, setForm] = useState({
     kind: ['demande', 'signalement'].includes(params.get('type')) ? params.get('type') : '',
     temporality: 'actuel', situation_start: '', situation_end: '', category: '', subject: '', description: '',
-    anonymous: false, requester_name: '', requester_service: '', requester_email: '',
+    anonymous: false, requester_name: saved?.name || '', requester_service: saved?.service || '', requester_email: saved?.email || '',
     visible_to_all: true, viewer_ids: [], notify: false, notify_email: '',
   })
   const [sending, setSending] = useState(false)
@@ -43,10 +45,9 @@ export default function Submit() {
     if (!form.category) return setError('Choisissez un thème.')
     if (form.subject.trim().length < 3) return setError('Donnez un objet d’au moins 3 caractères.')
     if (form.description.trim().length < 5) return setError('Décrivez la situation en quelques mots.')
-    if (form.requester_email && !/^\S+@\S+\.\S+$/.test(form.requester_email)) return setError('L’adresse e-mail ne semble pas valide.')
-    if (form.notify && !/^\S+@\S+\.\S+$/.test(form.notify_email.trim())) {
-      return setError('Indiquez une adresse e-mail valide pour être prévenu, ou décochez la case.')
-    }
+    const email = form.requester_email.trim()
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) return setError('L’adresse e-mail ne semble pas valide.')
+    if (form.notify && !email) return setError('Indiquez votre e-mail pour être prévenu, ou décochez la case.')
     if (form.kind === 'signalement' && form.situation_start && form.situation_end && form.situation_end < form.situation_start) {
       return setError('La fin de la situation ne peut pas précéder son début.')
     }
@@ -60,9 +61,20 @@ export default function Submit() {
       for (const k of ['requester_name', 'requester_service', 'requester_email']) if (!body[k]?.trim()) body[k] = null
       if (body.kind === 'demande') { body.temporality = null; body.situation_start = null; body.situation_end = null }
       for (const k of ['situation_start', 'situation_end']) if (!body[k]) body[k] = null
-      body.notify_email = body.notify ? body.notify_email.trim() : null
+      // Une seule adresse : celle de « Qui êtes-vous ? ». En anonyme, elle ne sert qu'à prévenir et n'est pas transmise aux élus.
+      body.notify_email = body.notify ? email : null
+      if (body.anonymous) body.requester_email = null
       const res = await api('/public/requests', { method: 'POST', body })
       myCodes.add(res.tracking_code, form.subject)
+      if (remember) {
+        // En anonyme, on ne remplace pas un nom déjà retenu
+        const prev = myIdentity.get() || {}
+        myIdentity.save({
+          name: form.anonymous ? prev.name || '' : form.requester_name.trim(),
+          service: form.anonymous ? prev.service || '' : form.requester_service.trim(),
+          email: email || prev.email || '',
+        })
+      } else myIdentity.clear()
       setDone(res)
       window.scrollTo({ top: 0 })
     } catch (err) {
@@ -129,32 +141,26 @@ export default function Submit() {
           label="Rester anonyme auprès des élus" />
         <Stack spacing={2}>
           <Collapse in={!form.anonymous} unmountOnExit>
-            <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField label="Nom et prénom" value={form.requester_name} onChange={set('requester_name')} autoComplete="name" />
-                <TextField label="Service ou atelier" value={form.requester_service} onChange={set('requester_service')} />
-              </Stack>
-              <TextField label="E-mail (pour vous recontacter)" type="email" value={form.requester_email}
-                onChange={set('requester_email')} autoComplete="email" inputProps={{ inputMode: 'email' }} />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField label="Nom et prénom" value={form.requester_name} onChange={set('requester_name')} autoComplete="name" />
+              <TextField label="Service ou atelier" value={form.requester_service} onChange={set('requester_service')} />
             </Stack>
           </Collapse>
-        </Stack>
-      </Fieldset>
-
-      <Fieldset legend="Être prévenu">
-        <FormControlLabel
-          control={<Checkbox checked={form.notify} onChange={(e) => {
-            const on = e.target.checked
-            setForm((f) => ({ ...f, notify: on, notify_email: on && !f.notify_email && !f.anonymous ? f.requester_email : f.notify_email }))
-          }} />}
-          label="Recevoir un e-mail quand ma demande avance (réponse du CSE, question du CSE, clôture)" />
-        <Collapse in={form.notify} unmountOnExit>
-          <TextField label="Votre e-mail" type="email" value={form.notify_email} onChange={set('notify_email')}
-            autoComplete="email" inputProps={{ inputMode: 'email' }} sx={{ mt: 1.5, width: '100%' }}
+          <TextField label="E-mail" type="email" value={form.requester_email}
+            onChange={set('requester_email')} autoComplete="email" inputProps={{ inputMode: 'email' }}
             helperText={form.anonymous
-              ? 'Votre demande reste anonyme : cette adresse n’est jamais montrée aux élus et elle est effacée une fois la demande close.'
-              : 'Cette adresse sert seulement à vous prévenir. L’e-mail ne contient pas la réponse : il vous invite à la lire ici.'} />
-        </Collapse>
+              ? 'Seulement si vous voulez être prévenu : jamais montrée aux élus, effacée une fois la demande close.'
+              : 'Pour que les élus puissent vous recontacter.'} />
+        </Stack>
+        <FormControlLabel sx={{ mt: 1 }}
+          control={<Checkbox checked={form.notify} onChange={set('notify')} />}
+          label="Me prévenir par e-mail quand ma demande avance (réponse du CSE, question du CSE, clôture)" />
+        <FormControlLabel
+          control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />}
+          label={<span>Se souvenir de mes coordonnées sur cet appareil
+            <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+              Décochez sur un poste partagé : elles seront effacées de cet appareil à l’envoi.
+            </Typography></span>} />
       </Fieldset>
 
       <Fieldset legend="Qui peut lire votre demande ?"
