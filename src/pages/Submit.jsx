@@ -152,11 +152,11 @@ export default function Submit() {
               ? 'Seulement si vous voulez être prévenu : jamais montrée aux élus, effacée une fois la demande close.'
               : 'Pour que les élus puissent vous recontacter.'} />
         </Stack>
-        <FormControlLabel sx={{ mt: 1 }}
-          control={<Checkbox checked={form.notify} onChange={set('notify')} />}
+        <FormControlLabel sx={{ mt: 1.5, alignItems: 'flex-start', display: 'flex' }}
+          control={<Checkbox checked={form.notify} onChange={set('notify')} sx={{ mt: -0.75 }} />}
           label="Me prévenir par e-mail quand ma demande avance (réponse du CSE, question du CSE, clôture)" />
-        <FormControlLabel
-          control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} />}
+        <FormControlLabel sx={{ mt: 1, alignItems: 'flex-start', display: 'flex' }}
+          control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} sx={{ mt: -0.75 }} />}
           label={<span>Se souvenir de mes coordonnées sur cet appareil
             <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
               Décochez sur un poste partagé : elles seront effacées de cet appareil à l’envoi.

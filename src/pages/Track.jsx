@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Alert, Box, Button, Card, CardContent, CircularProgress, InputBase, Stack, TextField, Typography } from '@mui/material'
 import { api, fmtDate, periodLabel } from '../api'
-import { ErrorAlert, KindChip, MessageList, Section, StatusChip, StatusTrack, TicketCode, Timeline } from '../components'
+import { ErrorAlert, Fold, KindChip, MessageList, Section, StatusChip, StatusTrack, TicketCode, Timeline } from '../components'
 import { mono, palette } from '../theme'
 
 export default function Track() {
@@ -117,9 +117,9 @@ export default function Track() {
         )}
       </Section>
 
-      <Section title="Historique">
+      <Fold title={`Historique (${data.events.length})`}>
         <Card><CardContent><Timeline events={[...data.events].reverse()} /></CardContent></Card>
-      </Section>
+      </Fold>
 
       <Typography variant="body2" color="text.secondary">
         {data.visible_to_all

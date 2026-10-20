@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import {
-  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  Alert, Box, Button, Card, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent,
   DialogTitle, FormControlLabel, Grid, IconButton, Link, MenuItem, Snackbar, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
@@ -9,18 +9,18 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import EditIcon from '@mui/icons-material/EditNoteOutlined'
-import PrintIcon from '@mui/icons-material/PrintOutlined'
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import AddIcon from '@mui/icons-material/Add'
 import AutoAwesomeIcon from '@mui/icons-material/PlaylistAddOutlined'  // génération par modèles, sans IA
 import RepeatIcon from '@mui/icons-material/Repeat'
-import { api, download, fmtDate, MEETING_KINDS } from '../../api'
-import { ErrorAlert, KindChip, Section, SubjectStatusChip } from '../../components'
+import { api, download, fmtDate, fmtDay, MEETING_KINDS, todayIso } from '../../api'
+import { ErrorAlert, KindChip, MoreMenu, Section, SubjectStatusChip } from '../../components'
 import { mono } from '../../theme'
 import { RecurrenceFields, SINGLE, fromItem, recurrenceLabel, toRule } from './Recurrence'
 import { SubjectRow } from './shared'
 
+const MEETING_STATUS = { planifiee: 'Planifiée', tenue: 'Tenue', annulee: 'Annulée' }
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
 function printAgenda(m) {
@@ -48,6 +48,7 @@ export default function MeetingDetail() {
   const [edit, setEdit] = useState(null)
   const [toast, setToast] = useState(null)
   const [generating, setGenerating] = useState(false)
+  const [settings, setSettings] = useState(null)
 
   const loadProposal = useCallback(() => api(`/meetings/${id}/proposal`).then(setProposal).catch(() => {}), [id])
   useEffect(() => {
@@ -96,6 +97,11 @@ export default function MeetingDetail() {
     call(`/items/${it.id}${stopRecurring ? '?stop_recurring=true' : ''}`, { method: 'DELETE' },
       stopRecurring ? 'Point retiré, il ne sera plus repris' : 'Point retiré')
   }
+  const saveSettings = async (e) => {
+    e.preventDefault()
+    await call('', { method: 'PATCH', body: settings }, 'Réunion modifiée')
+    setSettings(null)
+  }
   const remove = async () => {
     if (!window.confirm('Supprimer cette réunion ? Les sujets non traités repasseront « En cours ».')) return
     try { await api(`/meetings/${id}`, { method: 'DELETE' }); navigate('/elus/reunions') } catch (e) { setError(e.message) }
@@ -106,42 +112,44 @@ export default function MeetingDetail() {
 
   return (
     <>
-      <Button component={RouterLink} to="/elus/reunions" startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1, ml: -1 }}>Réunions</Button>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'flex-start' }} spacing={2} sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h2" component="h1">{m.title}</Typography>
-          <Typography color="text.secondary">{MEETING_KINDS[m.kind]}, {fmtDate(m.meeting_date)}</Typography>
-        </Box>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-          {editable && m.kind === 'ordinaire' && (
-            <Button variant="contained" startIcon={generating ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />}
-              disabled={generating} onClick={generate}>
-              Générer l’ordre du jour
-            </Button>
-          )}
-          <TextField select size="small" label="Type" value={m.kind} fullWidth={false} sx={{ minWidth: 190 }}
-            onChange={(e) => call('', { method: 'PATCH', body: { kind: e.target.value } })}>
-            {Object.entries(MEETING_KINDS).map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
-          </TextField>
-          <TextField select size="small" label="État" value={m.status} fullWidth={false} sx={{ minWidth: 140 }}
-            onChange={(e) => call('', { method: 'PATCH', body: { status: e.target.value } })}>
-            <MenuItem value="planifiee">Planifiée</MenuItem><MenuItem value="tenue">Tenue</MenuItem><MenuItem value="annulee">Annulée</MenuItem>
-          </TextField>
-          <Tooltip title="Convocation et ordre du jour au format Word du CSE">
-            <Button variant="outlined" startIcon={<DescriptionIcon />}
-              onClick={() => download(`/meetings/${id}/odj.docx`, 'Ordre du jour.docx').catch((e) => setError(e.message))}>
-              ODJ Word
-            </Button>
-          </Tooltip>
-          <Tooltip title="Trame du procès-verbal (points de l’ODJ et relevés de décision) au format Word du CSE">
-            <Button variant="outlined" startIcon={<DescriptionIcon />}
-              onClick={() => download(`/meetings/${id}/pv.docx`, 'PV.docx').catch((e) => setError(e.message))}>
-              PV Word
-            </Button>
-          </Tooltip>
-          <Tooltip title="Imprimer l’ordre du jour"><IconButton onClick={() => printAgenda(m)} aria-label="Imprimer l’ordre du jour"><PrintIcon /></IconButton></Tooltip>
-          <Tooltip title="Supprimer la réunion"><IconButton onClick={remove} aria-label="Supprimer la réunion"><DeleteIcon /></IconButton></Tooltip>
-        </Stack>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 1, ml: -1 }}>
+        <Button component={RouterLink} to="/elus/reunions" startIcon={<ArrowBackIcon />} size="small">Réunions</Button>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" onClick={() => setSettings({ title: m.title, meeting_date: m.meeting_date, kind: m.kind, status: m.status })}>Modifier</Button>
+        <MoreMenu items={[
+          { label: 'Imprimer l’ordre du jour', onClick: () => printAgenda(m) },
+          { label: 'Supprimer la réunion', danger: true, onClick: remove },
+        ]} />
+      </Stack>
+      <Typography variant="h2" component="h1" sx={{ overflowWrap: 'anywhere' }}>{m.title}</Typography>
+      <Typography color="text.secondary" sx={{ '&::first-letter': { textTransform: 'uppercase' } }}>
+        {fmtDay(m.meeting_date)} · {MEETING_KINDS[m.kind]}{m.status !== 'planifiee' ? ` · ${MEETING_STATUS[m.status]}` : ''}
+      </Typography>
+      {editable && m.meeting_date < todayIso() && (
+        <Alert severity="info" sx={{ mt: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => call('', { method: 'PATCH', body: { status: 'tenue' } }, 'Réunion marquée comme tenue')}>Marquer comme tenue</Button>}>
+          La date est passée : la réunion a-t-elle eu lieu ?
+        </Alert>
+      )}
+      <Stack direction="row" spacing={1} sx={{ mt: 2, mb: 3, flexWrap: 'wrap', rowGap: 1 }}>
+        {editable && m.kind === 'ordinaire' && (
+          <Button variant="contained" startIcon={generating ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />}
+            disabled={generating} onClick={generate}>
+            Générer l’ordre du jour
+          </Button>
+        )}
+        <Tooltip title="Convocation et ordre du jour au format Word du CSE">
+          <Button variant="outlined" startIcon={<DescriptionIcon />}
+            onClick={() => download(`/meetings/${id}/odj.docx`, 'Ordre du jour.docx').catch((e) => setError(e.message))}>
+            Ordre du jour Word
+          </Button>
+        </Tooltip>
+        <Tooltip title="Trame du procès-verbal (points de l’ordre du jour et relevés de décision) au format Word du CSE">
+          <Button variant="outlined" startIcon={<DescriptionIcon />}
+            onClick={() => download(`/meetings/${id}/pv.docx`, 'PV.docx').catch((e) => setError(e.message))}>
+            PV Word
+          </Button>
+        </Tooltip>
       </Stack>
       <ErrorAlert error={error} onClose={() => setError(null)} />
 
@@ -160,8 +168,8 @@ export default function MeetingDetail() {
                       ) : (
                         <>
                           <Stack direction="row" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap', rowGap: 0.5 }}>
-                            {it.status && <SubjectStatusChip status={it.status} />}
-                            {it.kind && <KindChip kind={it.kind} temporality={it.temporality} />}
+                            {it.status && it.status !== 'inscrit_odj' && <SubjectStatusChip status={it.status} />}
+                            {it.kind === 'signalement' && <KindChip kind="signalement" temporality={it.temporality} label={it.temporality === 'a_venir' ? 'Alerte (à venir)' : 'Alerte'} />}
                             {it.recurring && <Tooltip title={`Repris sur les réunions suivantes du même type : ${recurrenceLabel(it.recurrence).toLowerCase()}`}><Chip size="small" color="primary" variant="outlined" icon={<RepeatIcon />} label={`Récurrent : ${recurrenceLabel(it.recurrence).toLowerCase()}`} sx={{ maxWidth: '100%' }} /></Tooltip>}
                             {it.discussed && <Chip size="small" color="success" variant="outlined" label="Traité" />}
                           </Stack>
@@ -203,9 +211,11 @@ export default function MeetingDetail() {
                   <TextField size="small" label="Point libre (ex. Questions diverses)" value={free} onChange={(e) => setFree(e.target.value)} />
                   <Button type="submit" variant="outlined" disabled={!free.trim()} startIcon={<AddIcon />}>Ajouter</Button>
                 </Stack>
-                <Box sx={{ mt: 1.5 }}>
-                  <RecurrenceFields value={freeRec} onChange={setFreeRec} kindLabel={MEETING_KINDS[m.kind].toLowerCase()} />
-                </Box>
+                <Collapse in={!!free.trim()}>
+                  <Box sx={{ mt: 1.5 }}>
+                    <RecurrenceFields value={freeRec} onChange={setFreeRec} kindLabel={MEETING_KINDS[m.kind].toLowerCase()} />
+                  </Box>
+                </Collapse>
               </Box>
             )}
           </Section>
@@ -215,9 +225,9 @@ export default function MeetingDetail() {
           {editable && (
             <Section title="Proposition">
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Sujets en cours pas encore inscrits, classés par priorité, ancienneté, nombre de salariés concernés et urgence, avec la formulation proposée pour l’ordre du jour.
+                Sujets en cours pas encore inscrits, du plus urgent au moins urgent. Le bouton + les ajoute.
               </Typography>
-              {proposal?.items.length === 0 && <Typography color="text.secondary">Rien à proposer : tous les sujets en cours sont inscrits ou traités. Les demandes des salariés passent à l’ordre du jour via un sujet.</Typography>}
+              {proposal?.items.length === 0 && <Typography color="text.secondary">Rien à proposer : tous les sujets en cours sont inscrits.</Typography>}
               <Stack spacing={1}>
                 {proposal?.items.map((p) => (
                   <SubjectRow key={p.subject.id} s={p.subject}
@@ -237,6 +247,29 @@ export default function MeetingDetail() {
           )}
         </Grid>
       </Grid>
+
+      <Dialog open={!!settings} onClose={() => setSettings(null)} fullWidth maxWidth="xs" component="form" onSubmit={saveSettings}>
+        <DialogTitle>Modifier la réunion</DialogTitle>
+        <DialogContent>
+          {settings && (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <TextField label="Intitulé" value={settings.title} onChange={(e) => setSettings({ ...settings, title: e.target.value })} />
+              <TextField label="Date" type="date" InputLabelProps={{ shrink: true }} value={settings.meeting_date}
+                onChange={(e) => setSettings({ ...settings, meeting_date: e.target.value })} />
+              <TextField select label="Type" value={settings.kind} onChange={(e) => setSettings({ ...settings, kind: e.target.value })}>
+                {Object.entries(MEETING_KINDS).map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
+              </TextField>
+              <TextField select label="État" value={settings.status} onChange={(e) => setSettings({ ...settings, status: e.target.value })}>
+                {Object.entries(MEETING_STATUS).map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
+              </TextField>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSettings(null)}>Annuler</Button>
+          <Button type="submit" variant="contained" disabled={!settings?.meeting_date || (settings?.title || '').trim().length < 3}>Enregistrer</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="sm">
         <DialogTitle>Point de l’ordre du jour</DialogTitle>
@@ -260,7 +293,7 @@ export default function MeetingDetail() {
             <Box sx={{ mt: 1.5, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>Engagement de la direction</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Si la direction a annoncé un délai, indiquez-le : l’engagement est enregistré sur le sujet et suivi dans le Gantt.
+                Si la direction a annoncé un délai, indiquez-le : l’engagement est enregistré sur le sujet et suivi jusqu’à ce qu’il soit tenu.
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
                 <TextField type="date" size="small" label="Délai annoncé" InputLabelProps={{ shrink: true }} fullWidth={false}

@@ -1,22 +1,22 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  AppBar, BottomNavigation, BottomNavigationAction, Box, Divider, Drawer, IconButton, List,
+  AppBar, Badge, BottomNavigation, BottomNavigationAction, Box, Divider, Drawer, IconButton, List,
   ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Toolbar, Typography, useMediaQuery, useTheme,
 } from '@mui/material'
-import { useState } from 'react'
-import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboardOutlined'
+import HomeIcon from '@mui/icons-material/HomeOutlined'
 import InboxIcon from '@mui/icons-material/InboxOutlined'
 import EventNoteIcon from '@mui/icons-material/EventNoteOutlined'
-import ViewTimelineIcon from '@mui/icons-material/ViewTimelineOutlined'
 import GroupIcon from '@mui/icons-material/GroupOutlined'
 import TopicIcon from '@mui/icons-material/TopicOutlined'
 import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import { useApp } from '../App'
+import { api } from '../api'
 import { Logo, ModeToggle } from './PublicLayout'
 import { DemoBanner } from '../components'
 import { VERSION_LABEL } from '../version'
 
-const DRAWER = 240
+const DRAWER = 264
 
 export default function EluLayout() {
   const { user, logout, config } = useApp()
@@ -25,18 +25,26 @@ export default function EluLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const [menu, setMenu] = useState(null)
+  const [toTriage, setToTriage] = useState(0)
+
+  // Nombre de demandes à trier, rafraîchi à chaque changement de page (pastille sur « Demandes »)
+  useEffect(() => {
+    api('/requests/stats').then((s) => setToTriage(s.to_triage || 0)).catch(() => {})
+  }, [location.pathname])
 
   const nav = [
-    { to: '/elus', label: 'Accueil', icon: <SpaceDashboardIcon />, end: true },
-    { to: '/elus/demandes', label: 'Demandes', long: 'Demandes salariés', icon: <InboxIcon /> },
-    { to: '/elus/sujets', label: 'Sujets', long: 'Sujets CSE', icon: <TopicIcon /> },
+    { to: '/elus', label: 'Accueil', icon: <HomeIcon />, end: true },
+    { to: '/elus/demandes', label: 'Demandes', long: 'Demandes salariés', icon: <InboxIcon />, count: toTriage },
+    { to: '/elus/sujets', label: 'Sujets', long: 'Sujets CSE', icon: <TopicIcon />, also: ['/elus/suivi'] },
     { to: '/elus/reunions', label: 'Réunions', icon: <EventNoteIcon /> },
-    { to: '/elus/suivi', label: 'Suivi', icon: <ViewTimelineIcon /> },
-    ...(user.role === 'admin' ? [{ to: '/elus/comptes', label: 'Élus', icon: <GroupIcon />, adminOnly: true }] : []),
+    ...(user.role === 'admin' ? [{ to: '/elus/comptes', label: 'Élus', long: 'Élus et réglages', icon: <GroupIcon />, adminOnly: true }] : []),
   ]
-  // Sur téléphone : 5 onglets au plus, la gestion des élus passe dans le menu du compte
+  // Sur téléphone : 4 onglets, la gestion des élus passe dans le menu du compte
   const bottomNav = nav.filter((n) => !n.adminOnly)
-  const active = [...nav].reverse().find((n) => (n.end ? location.pathname === n.to : location.pathname.startsWith(n.to)))
+  const isActive = (n) => (n.end ? location.pathname === n.to
+    : [n.to, ...(n.also || [])].some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`)))
+  const active = nav.find(isActive)
+  const badge = (n, icon) => (n.count ? <Badge badgeContent={n.count} color="error" max={99}>{icon}</Badge> : icon)
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100dvh' }}>
@@ -72,13 +80,22 @@ export default function EluLayout() {
         <Drawer variant="permanent" sx={{ width: DRAWER, flexShrink: 0, '& .MuiDrawer-paper': { width: DRAWER, boxSizing: 'border-box', borderColor: 'divider' } }}>
           <Toolbar />
           <List sx={{ px: 1, pt: 2 }}>
-            {nav.map((n) => (
-              <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.end} selected={active?.to === n.to}
-                sx={{ borderRadius: 2, mb: 0.5, '&.Mui-selected': { bgcolor: 'action.selected', fontWeight: 700 } }}>
-                <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-                <ListItemText primary={n.long || n.label} primaryTypographyProps={{ fontWeight: active?.to === n.to ? 700 : 400 }} />
-              </ListItemButton>
-            ))}
+            {nav.map((n) => {
+              const on = active?.to === n.to
+              return (
+                <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.end} selected={on}
+                  sx={{ borderRadius: 2, mb: 0.5, '&.Mui-selected': { bgcolor: 'action.selected' } }}>
+                  <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+                  <ListItemText primary={n.long || n.label} primaryTypographyProps={{ fontWeight: on ? 700 : 400, noWrap: true }} />
+                  {n.count > 0 && (
+                    <Box component="span" aria-label={`${n.count} à trier`} sx={{
+                      ml: 1, flexShrink: 0, minWidth: 22, height: 22, px: 0.75, borderRadius: 11, bgcolor: 'error.main', color: '#fff',
+                      fontSize: '0.75rem', fontWeight: 700, display: 'grid', placeItems: 'center',
+                    }}>{n.count}</Box>
+                  )}
+                </ListItemButton>
+              )
+            })}
           </List>
         </Drawer>
       )}
@@ -92,8 +109,8 @@ export default function EluLayout() {
 
       {!desktop && (
         <Paper square sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, borderTop: 1, borderColor: 'divider', pb: 'env(safe-area-inset-bottom)', zIndex: 10 }}>
-          <BottomNavigation showLabels value={bottomNav.some((n) => n.to === active?.to) ? active.to : false} onChange={(_, v) => navigate(v)}>
-            {bottomNav.map((n) => <BottomNavigationAction key={n.to} value={n.to} label={n.label} icon={n.icon} sx={{ minWidth: 0, px: 0.5 }} />)}
+          <BottomNavigation showLabels value={active && !active.adminOnly ? active.to : false} onChange={(_, v) => navigate(v)}>
+            {bottomNav.map((n) => <BottomNavigationAction key={n.to} value={n.to} label={n.label} icon={badge(n, n.icon)} sx={{ minWidth: 0, px: 0.5 }} />)}
           </BottomNavigation>
         </Paper>
       )}

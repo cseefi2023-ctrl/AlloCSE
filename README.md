@@ -11,14 +11,16 @@ Elle est hébergée gratuitement, sans serveur à soi :
 **Côté salarié, sans compte**
 - Faire une **demande** ou un **signalement**. Un signalement porte sur une situation actuelle ou à venir, avec sa date de début et de fin si elles sont connues. La demande peut être anonyme ou non.
 - **Choisir qui peut lire** : tous les élus, ou seulement ceux qu'il coche. Ce choix s'impose à tout le monde, administrateurs compris. Un élu exclu ne voit ni le contenu de la demande ni même son existence.
-- Cocher **« Recevoir un e-mail quand ma demande avance »** : un e-mail part à chaque réponse ou message du CSE et à la clôture. L'e-mail ne contient pas la réponse, il invite à la lire dans l'appli. Pour une demande anonyme, l'adresse n'est jamais montrée aux élus et elle est effacée à la clôture.
+- Cocher **« Me prévenir par e-mail quand ma demande avance »** (une seule adresse à saisir) : un e-mail part à chaque réponse ou message du CSE et à la clôture. L'e-mail ne contient pas la réponse, il invite à la lire dans l'appli. Pour une demande anonyme, l'adresse n'est jamais montrée aux élus et elle est effacée à la clôture.
+- Nom, service et e-mail sont **retenus sur l'appareil** pour la demande suivante (case à décocher sur un poste partagé). La page d'accueil liste les demandes déposées depuis l'appareil, en couleur selon leur état (vert : traitée, orange : question du CSE en attente).
 - Recevoir un **numéro de suivi** (`AC-2026-7KQ4-X9M2`, impossible à deviner). Avec ce numéro, il suit l'avancement, lit la réponse du CSE et peut ajouter des précisions.
 
 **Côté élus, avec un compte validé**
-- Tableau de bord, prise en charge, priorité, échéance, notes internes.
+- **Accueil réduit à l'essentiel** : « À faire » (demandes à trier, engagements de la direction en retard, comptes élus à valider) et la prochaine réunion. Quatre onglets : Accueil, Demandes salariés (avec le nombre de demandes à trier), Sujets CSE, Réunions.
+- Prise en charge, statut ; échéance et priorité dans « Échéance, priorité… » ; notes internes.
 - **Demandes salariés** : tout ce que les salariés ont écrit. Pour chaque demande : **réponse directe** (par exemple les chèques cadeaux, gérés par le CSE lui-même), ou rattachement à un **sujet du CSE**.
 - **Sujets CSE** (`S-2026-001`) : ce que les élus suivent et portent devant la direction. Un sujet regroupe zéro, une ou plusieurs demandes de salariés (question des élus, ou problème soulevé par plusieurs salariés). Il a sa fiche : description, demandes rattachées, réponse transmise à tous les salariés concernés, notes internes, engagements de la direction, réunions, historique. On peut créer un sujet de zéro, rattacher ou détacher des demandes, fusionner deux sujets.
-- **Préparation des réunions** : la prochaine plénière, la prochaine extraordinaire et les autres réunions planifiées, avec une date proposée.
+- **Réunions** : « Planifier » propose la date et l'intitulé de la prochaine plénière (un mois après la précédente, même jour de la semaine). Une réunion passée se marque « tenue » d'un clic.
 - **« Générer l'ordre du jour »** ajoute en un clic :
   - les points fixes (approbation du PV, organisation…) ;
   - les sujets à traiter, chacun avec sa **phrase type**.
@@ -26,9 +28,9 @@ Elle est hébergée gratuitement, sans serveur à soi :
   Ces phrases sont des modèles réglables, **sans IA**, et ne mentionnent jamais l'identité du demandeur.
 - **Points récurrents** : un point peut revenir à chaque réunion, une réunion sur N, ou seulement certains mois (par exemple tous les trimestres), avec une date de fin.
 - **Documents Word** : la convocation avec l'ordre du jour, et la trame du PV avec les relevés de décision. Les deux sont produits dans la mise en page du CSE.
-- **Suivi des sujets** sous forme de diagramme de Gantt : du dépôt à l'échéance, avec les retards et les passages en réunion.
+- **Suivi dans le temps** (dans l'onglet Sujets) : diagramme de Gantt du dépôt à l'échéance, avec les retards, les passages en réunion et les engagements de la direction.
 - Un point de l'ordre du jour qu'un élu n'a pas le droit de voir apparaît chez lui comme « point à accès restreint », y compris dans les documents Word.
-- Administration : validation des comptes, rôles, thèmes, phrases types, points fixes, modèles Word.
+- **Élus et réglages** (administrateurs), en onglets : Élus (validation des comptes, rôles), Réglages (thèmes, phrases types, points fixes, modèles Word), E-mails, Données.
 - **Données de l'espace** (administrateurs) : exporter toutes les données dans un fichier, **repartir de zéro**, recharger un fichier d'un clic, ou charger l'exemple fictif fourni (voir « Préparer une présentation »).
 
 ## Plusieurs espaces : EFI, démonstration, autres entreprises
@@ -70,7 +72,7 @@ Un même site sert plusieurs CSE. **Chaque entreprise a sa propre base Supabase*
 
 ## Préparer une présentation (repartir de zéro, puis tout remplir d'un clic)
 
-Dans **Élus > Données de l'espace** (administrateurs) :
+Dans **Élus et réglages > Données** (administrateurs) :
 
 1. Préparez vos demandes, réunions et engagements dans l'espace, puis cliquez sur **Exporter** : vous obtenez un fichier `allocse-efi-AAAA-MM-JJ.json`. Gardez-le en lieu sûr (il contient les demandes, les noms des demandeurs non anonymes, etc.).
 2. Avant la présentation, **Vider l'espace** (taper `EFFACER`) : l'appli est comme neuve. Les comptes des élus, les réglages et les modèles Word restent en place.
@@ -122,7 +124,7 @@ Dans Supabase, ouvrir **Authentication > URL Configuration** :
 1. Ouvrir le site, cliquer sur **Espace élus > Je suis un nouvel élu** et créer **votre** compte en premier.
    **Le tout premier compte créé devient automatiquement administrateur.** Faites-le dès que le schéma est installé.
 2. Dans **Élus**, copier le lien d'inscription et l'envoyer aux autres élus. Chacun crée son compte, puis vous le **validez**.
-3. Dans **Élus > Modèles Word du CSE**, envoyer les modèles Word du CSE : `modele_odj.docx` et `modele_pv.docx`.
+3. Dans **Élus et réglages > Réglages > Modèles Word du CSE**, envoyer les modèles Word du CSE : `modele_odj.docx` et `modele_pv.docx`.
 4. Partager l'adresse du site aux salariés (affichage, intranet, QR code…).
 
 ## Modèles Word
@@ -146,7 +148,7 @@ Un modèle est un document Word ordinaire (logo, destinataires, signatures) qui 
 - **E-mails aux salariés** (Brevo, gratuit jusqu'à 300 e-mails par jour) :
   1. Brevo : valider un expéditeur, puis créer une **clé API** (*SMTP et API > Clés API*). Si Brevo bloque les adresses IP inconnues (*Sécurité > IP autorisées*), désactiver ce blocage : les envois partent des serveurs de Supabase.
   2. Supabase : **Integrations > Vault > Add new secret**, nom `brevo_api_key`, valeur : la clé API. Elle reste chiffrée dans la base et n'apparaît jamais dans le code.
-  3. Appli, **Élus > E-mails aux salariés** : adresse d'expédition, puis « M'envoyer un e-mail de test ».
+  3. Appli, **Élus et réglages > E-mails** : adresse d'expédition, puis « M'envoyer un e-mail de test ».
 
   Les envois partent chaque minute depuis la base (extensions `pg_cron` et `pg_net`, activées par le script). Pour une base déjà installée : exécuter `supabase/migration_notifications.sql`.
 - **Mot de passe oublié** : le lien part par e-mail. Il faut donc un service d'envoi dans Supabase, dans **Authentication > Emails > SMTP Settings** (le SMTP de l'entreprise, ou un service gratuit comme Brevo). Sans service d'envoi : supprimer le compte dans **Authentication > Users**, l'élu se réinscrit et vous le revalidez.

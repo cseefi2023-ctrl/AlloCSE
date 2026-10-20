@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import {
   Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Snackbar, Stack, Switch,
-  TextField, Tooltip, Typography,
+  Tab, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useApp } from '../../App'
@@ -10,8 +10,12 @@ import { adminUpdateElu, notificationStatus, sendTestMail, dataSummary, exportDa
 import { ErrorAlert, Section } from '../../components'
 import { appBaseUrl } from '../../tenant'
 
+const TABS = [['elus', 'Élus'], ['reglages', 'Réglages'], ['mails', 'E-mails'], ['donnees', 'Données']]
+
 export default function Accounts() {
   const { user, refreshConfig } = useApp()
+  const [params, setParams] = useSearchParams()
+  const tab = TABS.some(([k]) => k === params.get('onglet')) ? params.get('onglet') : 'elus'
   const [rows, setRows] = useState([])
   const [error, setError] = useState(null)
   const [edit, setEdit] = useState(null)
@@ -38,68 +42,75 @@ export default function Accounts() {
   const others = rows.filter((u) => !pending.includes(u))
 
   return (
-    <>
-      <Typography variant="h2" component="h1" sx={{ mb: 1 }}>Élus</Typography>
-      <Typography color="text.secondary" sx={{ mb: 2, maxWidth: '62ch' }}>
-        Chaque élu crée son compte depuis l’espace élus, puis vous le validez ici. Les élus validés apparaissent dans la liste
-        proposée aux salariés pour choisir qui peut lire leur demande. En fin de mandat, désactivez le compte.
-      </Typography>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 3 }}>
-        <TextField size="small" value={signupLink} label="Lien à envoyer aux élus" InputProps={{ readOnly: true }} />
-        <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copyLink} sx={{ flexShrink: 0 }}>Copier</Button>
-      </Stack>
+    <Box sx={{ maxWidth: 860 }}>
+      <Typography variant="h2" component="h1" sx={{ mb: 1 }}>Élus et réglages</Typography>
+      <Tabs value={tab} onChange={(_, v) => setParams(v === 'elus' ? {} : { onglet: v }, { replace: true })}
+        variant="scrollable" sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+        {TABS.map(([k, l]) => (
+          <Tab key={k} value={k} sx={{ textTransform: 'none', fontWeight: 700, minWidth: 0, px: 1.5 }}
+            label={k === 'elus' && pending.length ? `${l} (${pending.length} à valider)` : l} />
+        ))}
+      </Tabs>
       <ErrorAlert error={error} onClose={() => setError(null)} />
 
-      {pending.length > 0 && (
-        <Section title="À valider">
+      {tab === 'elus' && <>
+        <Typography color="text.secondary" sx={{ mb: 2, maxWidth: '62ch' }}>
+          Chaque élu crée son compte avec ce lien, puis vous le validez ici. En fin de mandat, désactivez son compte.
+        </Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 3 }}>
+          <TextField size="small" value={signupLink} label="Lien à envoyer aux élus" InputProps={{ readOnly: true }} />
+          <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copyLink} sx={{ flexShrink: 0 }}>Copier</Button>
+        </Stack>
+
+        {pending.length > 0 && (
+          <Section title="À valider">
+            <Stack spacing={1}>
+              {pending.map((u) => (
+                <Card key={u.id} sx={{ borderColor: 'secondary.main' }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1.5} sx={{ p: 2 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 700 }}>{u.full_name}</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{u.mandate ? `${u.mandate}, ` : ''}{u.email}</Typography>
+                    </Box>
+                    <Button variant="contained" onClick={() => change(u.id, { is_active: true }, `${u.full_name} peut maintenant se connecter`)}>Valider</Button>
+                  </Stack>
+                </Card>
+              ))}
+            </Stack>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Ne validez que les personnes que vous reconnaissez comme élues : le lien d’inscription est public.
+            </Typography>
+          </Section>
+        )}
+
+        <Section title="Comptes">
           <Stack spacing={1}>
-            {pending.map((u) => (
-              <Card key={u.id} sx={{ borderColor: 'secondary.main' }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1.5} sx={{ p: 2 }}>
+            {others.map((u) => (
+              <Card key={u.id} sx={{ opacity: u.is_active ? 1 : 0.6 }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ p: 2 }}>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 700 }}>{u.full_name}</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{u.mandate ? `${u.mandate}, ` : ''}{u.email}</Typography>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography sx={{ fontWeight: 700 }}>{u.full_name}</Typography>
+                      {u.role === 'admin' && <Chip size="small" label="Admin" />}
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary" noWrap>{u.mandate ? `${u.mandate}, ` : ''}{u.email}</Typography>
                   </Box>
-                  <Button variant="contained" onClick={() => change(u.id, { is_active: true }, `${u.full_name} peut maintenant se connecter`)}>Valider</Button>
+                  <Button size="small" onClick={() => setEdit({ ...u, mandate: u.mandate || '' })}>Modifier</Button>
+                  <Tooltip title={u.is_active ? 'Compte actif' : 'Compte désactivé'}>
+                    <Switch checked={u.is_active} disabled={u.id === user.id}
+                      onChange={() => change(u.id, { is_active: !u.is_active }, u.is_active ? 'Compte désactivé' : 'Compte réactivé')}
+                      inputProps={{ 'aria-label': `Compte de ${u.full_name} actif` }} />
+                  </Tooltip>
                 </Stack>
               </Card>
             ))}
           </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Ne validez que les personnes que vous reconnaissez comme élues : le lien d’inscription est public.
-          </Typography>
         </Section>
-      )}
+      </>}
 
-      <Section title="Comptes">
-        <Stack spacing={1}>
-          {others.map((u) => (
-            <Card key={u.id} sx={{ opacity: u.is_active ? 1 : 0.6 }}>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ p: 2 }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography sx={{ fontWeight: 700 }}>{u.full_name}</Typography>
-                    {u.role === 'admin' && <Chip size="small" label="Admin" />}
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary" noWrap>{u.mandate ? `${u.mandate}, ` : ''}{u.email}</Typography>
-                </Box>
-                <Button size="small" onClick={() => setEdit({ ...u, mandate: u.mandate || '' })}>Modifier</Button>
-                <Tooltip title={u.is_active ? 'Compte actif' : 'Compte désactivé'}>
-                  <Switch checked={u.is_active} disabled={u.id === user.id}
-                    onChange={() => change(u.id, { is_active: !u.is_active }, u.is_active ? 'Compte désactivé' : 'Compte réactivé')}
-                    inputProps={{ 'aria-label': `Compte de ${u.full_name} actif` }} />
-                </Tooltip>
-              </Stack>
-            </Card>
-          ))}
-        </Stack>
-      </Section>
-
-      <SettingsCard onSaved={() => { refreshConfig(); setToast('Réglages enregistrés') }} />
-
-      <MailCard />
-
-      <DataCard />
+      {tab === 'reglages' && <SettingsCard onSaved={() => { refreshConfig(); setToast('Réglages enregistrés') }} />}
+      {tab === 'mails' && <MailCard />}
+      {tab === 'donnees' && <DataCard />}
 
       <Dialog open={!!edit} onClose={() => setEdit(null)} fullWidth maxWidth="xs" component="form" onSubmit={save}>
         <DialogTitle>Modifier le compte</DialogTitle>
@@ -122,7 +133,7 @@ export default function Accounts() {
         </DialogActions>
       </Dialog>
       <Snackbar open={!!toast} autoHideDuration={2500} onClose={() => setToast(null)} message={toast} />
-    </>
+    </Box>
   )
 }
 
@@ -172,7 +183,7 @@ function SettingsCard({ onSaved }) {
   }
 
   return (
-    <Section title="Réglages">
+    <Box>
       <Card component="form" onSubmit={save}>
         <CardContent>
           <Stack spacing={2.5}>
@@ -220,7 +231,7 @@ function SettingsCard({ onSaved }) {
       {config?.demo
         ? <Alert severity="info" sx={{ mt: 2 }}>Démonstration : les modèles Word neutres sont utilisés, l’envoi de modèles est désactivé.</Alert>
         : <TemplatesCard />}
-    </Section>
+    </Box>
   )
 }
 
@@ -324,7 +335,7 @@ function DataCard() {
 
   const empty = sum?.empty
   return (
-    <Section title="Données de l’espace">
+    <Box>
       <Card>
         <CardContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: '70ch' }}>
@@ -380,7 +391,7 @@ function DataCard() {
           <Button type="submit" color="error" variant="contained" disabled={confirm.trim().toUpperCase() !== 'EFFACER'}>Effacer</Button>
         </DialogActions>
       </Dialog>
-    </Section>
+    </Box>
   )
 }
 
@@ -425,7 +436,7 @@ function MailCard() {
 
   const ready = st && st.ready_extensions && st.key_configured && st.mail_from
   return (
-    <Section title="E-mails aux salariés">
+    <Box>
       <Card component="form" onSubmit={save}>
         <CardContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: '70ch' }}>
@@ -459,6 +470,6 @@ function MailCard() {
           </Stack>
         </CardContent>
       </Card>
-    </Section>
+    </Box>
   )
 }

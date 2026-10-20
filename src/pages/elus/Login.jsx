@@ -55,7 +55,7 @@ export default function Login() {
     <Box component="form" onSubmit={submit} sx={{ pt: { xs: 2, sm: 6 }, maxWidth: 440 }}>
       <Typography variant="h2" component="h1" sx={{ mb: 1 }}>Espace élus</Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Réservé aux membres du CSE. Un nouveau compte doit être validé par un administrateur avant d’accéder aux demandes.
+        Réservé aux membres du CSE.{mode === 'signup' && ' Votre compte sera validé par un administrateur du CSE avant votre première connexion.'}
       </Typography>
       {config?.demo && (
         <Box sx={{ mb: 3, p: 2, border: 2, borderColor: 'secondary.main', borderRadius: 2 }}>

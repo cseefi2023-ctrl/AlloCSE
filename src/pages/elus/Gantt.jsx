@@ -8,6 +8,7 @@ import WarningIcon from '@mui/icons-material/ReportProblemOutlined'
 import { useApp } from '../../App'
 import { api, fmtShort, periodLabel, SUBJECT_STATUS as STATUS } from '../../api'
 import { ErrorAlert } from '../../components'
+import { SubjectsHeader } from './shared'
 
 const DAY = 86400000
 const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
@@ -52,7 +53,6 @@ export default function Gantt() {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState(6)
-  const [kind, setKind] = useState('')
   const [mine, setMine] = useState(false)
   const [answered, setAnswered] = useState(false)
   const [view, setView] = useState('gantt')
@@ -65,10 +65,10 @@ export default function Gantt() {
   const rows = useMemo(() => {
     if (!data) return []
     return data.items
-      .filter((i) => (!kind || i.subject.kind === kind) && (!mine || i.subject.assignee?.id === user.id))
+      .filter((i) => !mine || i.subject.assignee?.id === user.id)
       .map((i) => describe(i, today))
       .sort((a, b) => (Math.max(b.late, b.commitLate) - Math.max(a.late, a.commitLate)) || ((a.due || Infinity) - (b.due || Infinity)) || (a.start - b.start))
-  }, [data, kind, mine, user.id, today])
+  }, [data, mine, user.id, today])
 
   // Fenêtre de temps : la période choisie, jusqu'aux prochaines échéances et réunions (6 mois max)
   const range = useMemo(() => {
@@ -99,43 +99,35 @@ export default function Gantt() {
   if (!data) return error ? <ErrorAlert error={error} /> : <Box sx={{ py: 8, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
 
   const lateCount = rows.filter((r) => r.late).length
-  const noDue = rows.filter((r) => !r.due && !r.answered).length
   const pendingCommits = rows.flatMap((r) => r.commitments).filter((c) => c.status === 'en_attente')
   const lateCommits = pendingCommits.filter((c) => c.day < today).length
 
   return (
     <>
-      <Typography variant="h2" component="h1">Suivi des sujets</Typography>
+      <Box sx={{ maxWidth: 860 }}><SubjectsHeader /></Box>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         {plural(rows.length, 'sujet')}{answered ? '' : ' en cours'}
-        {lateCount > 0 && <>, <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{lateCount} en retard</Box></>}
-        {noDue > 0 && `, ${noDue} sans échéance`}
-        {pendingCommits.length > 0 && <>, {plural(pendingCommits.length, 'engagement')} de la direction en attente
-          {lateCommits > 0 && <> dont <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{lateCommits} dépassé{lateCommits > 1 ? 's' : ''}</Box></>}</>}.
-        {' '}Fixez l’échéance et notez les engagements de la direction depuis la fiche du sujet.
+        {lateCount > 0 && <> · <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{lateCount} en retard</Box></>}
+        {pendingCommits.length > 0 && <> · {plural(pendingCommits.length, 'engagement')} de la direction en attente
+          {lateCommits > 0 && <> dont <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{lateCommits} dépassé{lateCommits > 1 ? 's' : ''}</Box></>}</>}
       </Typography>
       <ErrorAlert error={error} onClose={() => setError(null)} />
 
-      {/* Filtres : une seule rangée au-dessus du diagramme */}
       <Stack direction="row" spacing={1.5} useFlexGap alignItems="center" sx={{ mb: 2, flexWrap: 'wrap' }}>
         <TextField select size="small" label="Période" value={period} onChange={(e) => setPeriod(Number(e.target.value))} sx={{ width: 190 }}>
           {Object.entries(PERIODS).map(([v, l]) => <MenuItem key={v} value={Number(v)}>{l}</MenuItem>)}
         </TextField>
-        <TextField select size="small" label="Type" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ width: 170 }}
-          InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true }}>
-          <MenuItem value="">Tous</MenuItem><MenuItem value="demande">Questions</MenuItem><MenuItem value="signalement">Alertes</MenuItem>
-        </TextField>
         <FormControlLabel control={<Checkbox checked={mine} onChange={(e) => setMine(e.target.checked)} />} label="Mes sujets" />
-        <FormControlLabel control={<Checkbox checked={answered} onChange={(e) => setAnswered(e.target.checked)} />} label="Inclure les sujets répondus" />
+        <FormControlLabel control={<Checkbox checked={answered} onChange={(e) => setAnswered(e.target.checked)} />} label="Avec les sujets répondus" />
         <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)} aria-label="Affichage">
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)} aria-label="Présentation">
           <ToggleButton value="gantt">Diagramme</ToggleButton>
           <ToggleButton value="table">Tableau</ToggleButton>
         </ToggleButtonGroup>
       </Stack>
 
       {rows.length === 0 ? (
-        <Card sx={{ p: 4, textAlign: 'center' }}><Typography color="text.secondary">Aucun sujet en cours avec ces filtres.</Typography></Card>
+        <Card sx={{ p: 4, textAlign: 'center' }}><Typography color="text.secondary">Aucun sujet en cours.</Typography></Card>
       ) : view === 'table' ? (
         <SubjectTable rows={rows} />
       ) : (

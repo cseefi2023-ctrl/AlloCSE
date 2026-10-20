@@ -304,6 +304,7 @@ export const MEETING_KINDS = { ordinaire: 'Plénière (ordinaire)', extraordinai
 const asDate = (d) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00`) : new Date(d))
 export const fmtDate = (d) => asDate(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
 export const fmtDateTime = (d) => asDate(d).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+export const fmtDay = (d) => asDate(d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 export const fmtShort = (d) => asDate(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 export const todayIso = () => {
   const d = new Date()

@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Chip, IconButton, Radio, RadioGroup, Snackbar, Stack, TextField, Tooltip, Typography, useTheme } from '@mui/material'
+import {
+  Alert, Box, Button, Chip, Collapse, IconButton, Menu, MenuItem, Radio, RadioGroup, Snackbar, Stack, TextField, Tooltip, Typography, useTheme,
+} from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ShareIcon from '@mui/icons-material/Share'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import { STATUS, STATUS_ORDER, SUBJECT_STATUS, fmtDateTime, trackingUrl } from './api'
@@ -24,10 +28,10 @@ export function SubjectStatusChip({ status, size = 'small' }) {
   )
 }
 
-export function KindChip({ kind, temporality }) {
-  if (kind !== 'signalement') return <Chip size="small" variant="outlined" label="Demande" />
+export function KindChip({ kind, temporality, label }) {
+  if (kind !== 'signalement') return <Chip size="small" variant="outlined" label={label || 'Demande'} />
   return (
-    <Chip size="small" label={temporality === 'a_venir' ? 'Signalement (à venir)' : 'Signalement (actuel)'}
+    <Chip size="small" label={label || (temporality === 'a_venir' ? 'Signalement (à venir)' : 'Signalement')}
       sx={{ bgcolor: `${palette.signal}33`, color: 'text.primary', border: `1px solid ${palette.signal}` }} />
   )
 }
@@ -198,6 +202,43 @@ export function Section({ title, action, children, sx }) {
       )}
       {children}
     </Box>
+  )
+}
+
+// Bloc repliable (historique, réglages secondaires) : fermé par défaut pour alléger l'écran
+export function Fold({ title, children, defaultOpen = false, sx }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Box component="section" sx={{ mb: 3, ...sx }}>
+      <Button onClick={() => setOpen(!open)} aria-expanded={open}
+        endIcon={<ExpandMoreIcon sx={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+        sx={{ ml: -1, px: 1, color: 'text.primary', fontWeight: 700, fontSize: '1rem', textTransform: 'none' }}>
+        {title}
+      </Button>
+      <Collapse in={open} unmountOnExit><Box sx={{ pt: 1 }}>{children}</Box></Collapse>
+    </Box>
+  )
+}
+
+// Menu « ⋮ » des actions rares (fusionner, supprimer, imprimer…)
+export function MoreMenu({ items, label = 'Autres actions' }) {
+  const [anchor, setAnchor] = useState(null)
+  const shown = items.filter(Boolean)
+  if (!shown.length) return null
+  return (
+    <>
+      <Tooltip title={label}>
+        <IconButton aria-label={label} onClick={(e) => setAnchor(e.currentTarget)}><MoreVertIcon /></IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        {shown.map((it) => (
+          <MenuItem key={it.label} disabled={it.disabled} onClick={() => { setAnchor(null); it.onClick() }}
+            sx={it.danger ? { color: 'error.main' } : undefined}>
+            {it.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   )
 }
 
