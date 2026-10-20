@@ -7,12 +7,12 @@ import { fmtShort, periodLabel } from '../../api'
 import { KindChip, StatusChip, SubjectStatusChip } from '../../components'
 import { mono } from '../../theme'
 
-// Sujet d'une demande : son numéro, « À trier » (nouvelle, sans sujet) ou « Sans sujet » (répondue directement)
+// Sujet d'une demande : son numéro, « À trier » (sans sujet, pas encore répondue) ou « Sans sujet » (répondue directement)
 export function SubjectChip({ r }) {
   if (r.subject_ref) {
     return <Chip size="small" variant="outlined" sx={{ fontFamily: mono }} label={r.subject_ref.number} />
   }
-  if (r.status === 'nouvelle') return <Chip size="small" label="À trier" variant="outlined" sx={{ borderStyle: 'dashed' }} />
+  if (r.status === 'nouvelle' || r.status === 'en_cours') return <Chip size="small" label="À trier" variant="outlined" sx={{ borderStyle: 'dashed' }} />
   return null
 }
 

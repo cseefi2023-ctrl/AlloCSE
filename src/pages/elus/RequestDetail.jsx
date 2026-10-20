@@ -143,7 +143,7 @@ export default function RequestDetail() {
               {!ref && (
                 <Stack spacing={1.5}>
                   <Typography variant="body2" color="text.secondary">
-                    {r.status === 'nouvelle'
+                    {r.status === 'nouvelle' || r.status === 'en_cours'
                       ? 'À trier. Vous pouvez répondre directement au salarié. Si la question doit être suivie ou portée devant la direction, créez un sujet ou rattachez-la à un sujet existant.'
                       : 'Aucun sujet : la demande est traitée directement avec le salarié.'}
                   </Typography>
