@@ -7,7 +7,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useApp } from '../../App'
 import { api, fmtDate, fmtShort, periodLabel, STATUS, STATUS_ORDER } from '../../api'
-import { CommitmentChip, ErrorAlert, KindChip, MessageList, Section, StatusChip, StatusTrack, SubjectStatusChip, Timeline } from '../../components'
+import { CommitmentChip, DateField, ErrorAlert, KindChip, MessageList, Section, StatusChip, StatusTrack, SubjectStatusChip, Timeline } from '../../components'
 import { mono } from '../../theme'
 import { SubjectChip } from './shared'
 
@@ -199,21 +199,14 @@ export default function RequestDetail() {
                 <TextField select size="small" label="Statut" value={r.status} onChange={(e) => patch({ status: e.target.value }, 'Statut modifié')}>
                   {STATUS_ORDER.map((s) => <MenuItem key={s} value={s}>{STATUS[s].label}</MenuItem>)}
                 </TextField>
-                {r.kind === 'signalement' && (
-                  <Stack direction="row" spacing={1}>
-                    <TextField type="date" size="small" label="Situation depuis" value={r.situation_start || ''} InputLabelProps={{ shrink: true }}
-                      onChange={(e) => patch({ situation_start: e.target.value || null }, 'Période enregistrée')} />
-                    <TextField type="date" size="small" label="Jusqu’au" value={r.situation_end || ''} InputLabelProps={{ shrink: true }}
-                      inputProps={{ min: r.situation_start || undefined }}
-                      onChange={(e) => patch({ situation_end: e.target.value || null }, 'Période enregistrée')} />
-                  </Stack>
-                )}
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField type="date" size="small" label="Échéance" value={r.due_date || ''} InputLabelProps={{ shrink: true }}
-                    helperText="Date attendue de réponse (diagramme de suivi)"
-                    onChange={(e) => e.target.value && patch({ due_date: e.target.value }, 'Échéance enregistrée')} />
-                  {r.due_date && <Button size="small" onClick={() => patch({ due_date: null }, 'Échéance retirée')} sx={{ alignSelf: 'flex-start', mt: 0.5 }}>Retirer</Button>}
-                </Stack>
+                {r.kind === 'signalement' && <>
+                  <DateField label="Situation depuis" value={r.situation_start}
+                    onCommit={(d) => patch({ situation_start: d }, d ? 'Début de la situation enregistré' : 'Début retiré')} />
+                  <DateField label="Situation jusqu’au" value={r.situation_end} min={r.situation_start}
+                    onCommit={(d) => patch({ situation_end: d }, d ? 'Fin de la situation enregistrée' : 'Fin retirée')} />
+                </>}
+                <DateField label="Échéance" value={r.due_date} helperText="Date attendue de réponse. Videz le champ pour la retirer."
+                  onCommit={(d) => patch({ due_date: d }, d ? 'Échéance enregistrée' : 'Échéance retirée')} />
                 <TextField select size="small" label="Priorité" value={r.priority} onChange={(e) => patch({ priority: e.target.value })}>
                   <MenuItem value="basse">Basse</MenuItem><MenuItem value="normale">Normale</MenuItem><MenuItem value="haute">Haute</MenuItem>
                 </TextField>

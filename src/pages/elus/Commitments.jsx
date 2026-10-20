@@ -4,7 +4,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import { api, fmtDate, fmtShort } from '../../api'
-import { CommitmentChip, ErrorAlert } from '../../components'
+import { CommitmentChip, DateField, ErrorAlert } from '../../components'
 
 // Engagements de la direction sur un sujet : ce qu'elle a promis, pour quand, et si c'est tenu
 export default function Commitments({ subject: r, onChange, onToast }) {
@@ -57,8 +57,8 @@ export default function Commitments({ subject: r, onChange, onToast }) {
                 {c.status === 'en_attente' && <Button size="small" variant="outlined" disabled={busy} onClick={() => update(c, { status: 'non_tenu' }, 'Engagement non tenu')}>Non tenu</Button>}
                 {c.status !== 'en_attente' && <Button size="small" disabled={busy} onClick={() => update(c, { status: 'en_attente' })}>Remettre en attente</Button>}
                 {c.status === 'en_attente' && (
-                  <TextField type="date" size="small" label="Reporter au" InputLabelProps={{ shrink: true }} fullWidth={false}
-                    value="" onChange={(e) => e.target.value && update(c, { due_date: e.target.value }, 'Délai reporté')} sx={{ width: 170 }} />
+                  <DateField label="Reporter au" value={null} sx={{ width: 190 }}
+                    onCommit={(d) => d && update(c, { due_date: d }, 'Délai reporté')} />
                 )}
               </Stack>
             </Box>

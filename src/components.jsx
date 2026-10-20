@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Alert, Box, Button, Chip, IconButton, Radio, RadioGroup, Snackbar, Stack, Tooltip, Typography, useTheme } from '@mui/material'
+import { useEffect, useState } from 'react'
+import { Alert, Box, Button, Chip, IconButton, Radio, RadioGroup, Snackbar, Stack, TextField, Tooltip, Typography, useTheme } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import ShareIcon from '@mui/icons-material/Share'
 import LockIcon from '@mui/icons-material/LockOutlined'
@@ -286,5 +286,24 @@ export function DemoBanner({ config, sx }) {
     <Box role="note" sx={{ bgcolor: palette.signal, color: palette.ink, px: 2, py: 0.75, textAlign: 'center', fontSize: '0.9rem', ...sx }}>
       <strong>Démonstration</strong> : toutes les données sont fictives et remises à zéro chaque nuit.
     </Box>
+  )
+}
+
+// Champ date enregistré seulement quand la date est complète (ou vidée) : on peut taper la date
+// chiffre par chiffre ou la choisir dans le calendrier sans qu'elle soit effacée en cours de saisie
+export function DateField({ value, onCommit, label, helperText, min, size = 'small', sx }) {
+  const [v, setV] = useState(value || '')
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setV(value || '') }, [value, focused])
+  const commit = (next) => {
+    if ((next || null) === (value || null)) return
+    if (next === '' || /^\d{4}-\d{2}-\d{2}$/.test(next)) onCommit(next || null)
+  }
+  return (
+    <TextField type="date" size={size} label={label} value={v} helperText={helperText} sx={sx}
+      InputLabelProps={{ shrink: true }} inputProps={{ min: min || undefined }}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => { setV(e.target.value); if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) commit(e.target.value) }}
+      onBlur={(e) => { setFocused(false); commit(e.target.value) }} />
   )
 }

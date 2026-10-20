@@ -10,7 +10,7 @@ import LinkOffIcon from '@mui/icons-material/LinkOff'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import { useApp } from '../../App'
 import { api, fmtDate, fmtDateTime, fmtShort, periodLabel, SUBJECT_STATUS, SUBJECT_STATUS_ORDER, todayIso } from '../../api'
-import { ErrorAlert, Section, SubjectStatusChip, Timeline } from '../../components'
+import { DateField, ErrorAlert, Section, SubjectStatusChip, Timeline } from '../../components'
 import { mono, palette } from '../../theme'
 import Commitments from './Commitments'
 import { RequestRow } from './shared'
@@ -225,12 +225,8 @@ export default function SubjectDetail() {
                 <TextField select size="small" label="Priorité" value={s.priority} onChange={(e) => patch({ priority: e.target.value })}>
                   <MenuItem value="basse">Basse</MenuItem><MenuItem value="normale">Normale</MenuItem><MenuItem value="haute">Haute</MenuItem>
                 </TextField>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField type="date" size="small" label="Échéance" value={s.due_date || ''} InputLabelProps={{ shrink: true }}
-                    helperText="Date attendue de réponse (suivi)"
-                    onChange={(e) => e.target.value && patch({ due_date: e.target.value }, 'Échéance enregistrée')} />
-                  {s.due_date && <Button size="small" onClick={() => patch({ due_date: null }, 'Échéance retirée')} sx={{ alignSelf: 'flex-start', mt: 0.5 }}>Retirer</Button>}
-                </Stack>
+                <DateField label="Échéance" value={s.due_date} helperText="Date attendue de réponse (suivi). Videz le champ pour la retirer."
+                  onCommit={(d) => patch({ due_date: d }, d ? 'Échéance enregistrée' : 'Échéance retirée')} />
               </Stack>
             </CardContent>
           </Card>
@@ -300,7 +296,7 @@ export default function SubjectDetail() {
                   <FormControlLabel value="actuel" control={<Radio />} label="Existe déjà" />
                   <FormControlLabel value="a_venir" control={<Radio />} label="Annoncée ou se prépare" />
                 </RadioGroup>
-                <Stack direction="row" spacing={1}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField type="date" label="Depuis / à partir du" value={edit.situation_start} InputLabelProps={{ shrink: true }}
                     onChange={(e) => setEdit({ ...edit, situation_start: e.target.value })} />
                   <TextField type="date" label="Jusqu’au" value={edit.situation_end} InputLabelProps={{ shrink: true }}
