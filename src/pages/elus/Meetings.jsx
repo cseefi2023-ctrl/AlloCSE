@@ -5,6 +5,7 @@ import AddIcon from '@mui/icons-material/Add'
 import { api, fmtDay, MEETING_KINDS, todayIso } from '../../api'
 import { ErrorAlert, Section } from '../../components'
 import { PlanDialog, suggestionsOf } from './Preparation'
+import { MeetingsHeader } from './shared'
 
 const MEETING_STATUS = { planifiee: 'Planifiée', tenue: 'Tenue', annulee: 'Annulée' }
 const PAST_SHOWN = 3
@@ -46,10 +47,7 @@ export default function Meetings() {
 
   return (
     <Box sx={{ maxWidth: 860 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3, gap: 1 }}>
-        <Typography variant="h2" component="h1">Réunions</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>Planifier</Button>
-      </Stack>
+      <MeetingsHeader action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>Planifier</Button>} />
       <ErrorAlert error={error} />
       {rows && (
         <Section title="À venir">

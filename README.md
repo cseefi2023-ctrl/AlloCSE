@@ -27,7 +27,13 @@ Elle est hébergée gratuitement, sans serveur à soi :
 
   Ces phrases sont des modèles réglables, **sans IA**, et ne mentionnent jamais l'identité du demandeur.
 - **Points récurrents** : un point peut revenir à chaque réunion, une réunion sur N, ou seulement certains mois (par exemple tous les trimestres), avec une date de fin.
-- **Documents Word** : la convocation avec l'ordre du jour, et la trame du PV avec les relevés de décision. Les deux sont produits dans la mise en page du CSE.
+- **Documents Word** : la convocation avec l'ordre du jour, et la trame du PV avec les relevés de décision et le résultat des votes. Les deux sont produits dans la mise en page du CSE.
+- **Votes du CSE** (onglet Réunions et votes) :
+  - **en séance** : la question est préparée, rattachée à la réunion et à son point de l'ordre du jour, puis un élu note le nombre de voix (pour, contre, abstention). La résolution est adoptée si les « pour » dépassent la moitié des votants. Le résultat est repris dans le PV ;
+  - **en ligne entre élus** : pour, contre, abstention, ou 2 à 8 choix libres (devis, destinations…), avec une date limite. Chaque élu vote dans l'appli et peut changer d'avis jusqu'à la clôture ; les résultats ne s'affichent qu'à la clôture ;
+  - **bulletin secret** : la base ne garde que la participation, jamais qui a voté quoi, et un vote secret ne se modifie pas ;
+  - l'administrateur peut retirer le droit de vote d'un compte (par exemple un représentant syndical).
+- **Prêts de matériel** (tente, barbecue, appareil à raclette…) : catalogue avec quantité, caution et rangement ; prêts et réservations aux salariés, avec vérification de la disponibilité par quantité et par dates ; remise, retour (état du matériel), caution reçue puis rendue. Les retards et les réservations à remettre apparaissent dans « À faire ».
 - **Suivi dans le temps** (dans l'onglet Sujets) : diagramme de Gantt du dépôt à l'échéance, avec les retards, les passages en réunion et les engagements de la direction.
 - Un point de l'ordre du jour qu'un élu n'a pas le droit de voir apparaît chez lui comme « point à accès restreint », y compris dans les documents Word.
 - **Élus et réglages** (administrateurs), en onglets : Élus (validation des comptes, rôles), Réglages (thèmes, phrases types, points fixes, modèles Word), E-mails, Données.
@@ -182,6 +188,7 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
 │   ├── migration_espaces.sql   mise à jour d'une base déjà installée (conserve les données)
 │   ├── migration_notifications.sql  mise à jour : e-mails aux salariés
 │   ├── migration_sujets.sql    mise à jour : sujets du CSE en fiches à part (convertit les données)
+│   ├── migration_votes_prets.sql  mise à jour : votes du CSE et prêts de matériel (ajoute, ne modifie rien)
 │   ├── demo.sql                transforme une base en démonstration (projet démo uniquement)
 │   └── reset.sql               remise à zéro avant réinstallation
 ├── public/

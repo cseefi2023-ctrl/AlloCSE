@@ -19,6 +19,7 @@ import { ErrorAlert, KindChip, MoreMenu, Section, SubjectStatusChip } from '../.
 import { mono } from '../../theme'
 import { RecurrenceFields, SINGLE, fromItem, recurrenceLabel, toRule } from './Recurrence'
 import { SubjectRow } from './shared'
+import { NewVoteDialog, VoteRow } from './Votes'
 
 const MEETING_STATUS = { planifiee: 'Planifiée', tenue: 'Tenue', annulee: 'Annulée' }
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -48,6 +49,7 @@ export default function MeetingDetail() {
   const [edit, setEdit] = useState(null)
   const [toast, setToast] = useState(null)
   const [generating, setGenerating] = useState(false)
+  const [voteOpen, setVoteOpen] = useState(false)
   const [settings, setSettings] = useState(null)
 
   const loadProposal = useCallback(() => api(`/meetings/${id}/proposal`).then(setProposal).catch(() => {}), [id])
@@ -138,13 +140,13 @@ export default function MeetingDetail() {
             Générer l’ordre du jour
           </Button>
         )}
-        <Tooltip title="Convocation et ordre du jour au format Word du CSE">
+        <Tooltip describeChild title="Convocation et ordre du jour au format Word du CSE">
           <Button variant="outlined" startIcon={<DescriptionIcon />}
             onClick={() => download(`/meetings/${id}/odj.docx`, 'Ordre du jour.docx').catch((e) => setError(e.message))}>
             Ordre du jour Word
           </Button>
         </Tooltip>
-        <Tooltip title="Trame du procès-verbal (points de l’ordre du jour et relevés de décision) au format Word du CSE">
+        <Tooltip describeChild title="Trame du procès-verbal (points de l’ordre du jour et relevés de décision) au format Word du CSE">
           <Button variant="outlined" startIcon={<DescriptionIcon />}
             onClick={() => download(`/meetings/${id}/pv.docx`, 'PV.docx').catch((e) => setError(e.message))}>
             PV Word
@@ -218,6 +220,19 @@ export default function MeetingDetail() {
                 </Collapse>
               </Box>
             )}
+          </Section>
+
+          <Section title="Votes" action={<Button size="small" startIcon={<AddIcon />} onClick={() => setVoteOpen(true)}>Ajouter un vote</Button>}>
+            {m.votes.length === 0
+              ? <Typography color="text.secondary">Aucun vote prévu pour cette réunion.</Typography>
+              : (
+                <Stack spacing={1}>
+                  {m.votes.map((v) => {
+                    const idx = m.items.findIndex((it) => it.id === v.agenda_item_id)
+                    return <VoteRow key={v.id} v={v} showMeeting={false} extra={idx >= 0 ? `point ${idx + 1} : ${m.items[idx].title}` : null} />
+                  })}
+                </Stack>
+              )}
           </Section>
         </Grid>
 
@@ -341,6 +356,8 @@ export default function MeetingDetail() {
           <Button variant="contained" color="error" onClick={() => removeItem(removing, true)}>Arrêter la répétition</Button>
         </DialogActions>
       </Dialog>
+      <NewVoteDialog open={voteOpen} onClose={() => setVoteOpen(false)} meeting={m}
+        onCreated={() => { setToast('Vote ajouté'); api(`/meetings/${id}`).then(setM).catch(() => {}) }} />
       <Snackbar open={!!toast} autoHideDuration={2500} onClose={() => setToast(null)} message={toast} />
     </>
   )

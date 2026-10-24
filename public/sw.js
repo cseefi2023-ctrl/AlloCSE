@@ -1,6 +1,6 @@
 // Service worker minimal : l'application s'ouvre même avec un réseau instable.
 // Seuls les fichiers de l'application sont mis en cache, jamais les données Supabase.
-const CACHE = 'allocse-v4'
+const CACHE = 'allocse-v5'
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './manifest.webmanifest'])))
   self.skipWaiting()

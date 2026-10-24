@@ -9,6 +9,7 @@ import InboxIcon from '@mui/icons-material/InboxOutlined'
 import EventNoteIcon from '@mui/icons-material/EventNoteOutlined'
 import GroupIcon from '@mui/icons-material/GroupOutlined'
 import TopicIcon from '@mui/icons-material/TopicOutlined'
+import InventoryIcon from '@mui/icons-material/Inventory2Outlined'
 import AccountCircleIcon from '@mui/icons-material/AccountCircleOutlined'
 import { useApp } from '../App'
 import { api } from '../api'
@@ -25,21 +26,27 @@ export default function EluLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const [menu, setMenu] = useState(null)
-  const [toTriage, setToTriage] = useState(0)
+  const [counts, setCounts] = useState({})
 
-  // Nombre de demandes à trier, rafraîchi à chaque changement de page (pastille sur « Demandes »)
+  // Pastilles du menu, rafraîchies à chaque changement de page : demandes à trier, votes qui attendent
+  // la voix de l'élu, prêts en retard ou à remettre
   useEffect(() => {
-    api('/requests/stats').then((s) => setToTriage(s.to_triage || 0)).catch(() => {})
+    api('/requests/stats').then((s) => setCounts({
+      demandes: s.to_triage || 0,
+      votes: (s.votes_to_cast || []).length,
+      prets: (s.loans_late || []).length + (s.loans_to_hand || []).length,
+    })).catch(() => {})
   }, [location.pathname])
 
   const nav = [
     { to: '/elus', label: 'Accueil', icon: <HomeIcon />, end: true },
-    { to: '/elus/demandes', label: 'Demandes', long: 'Demandes salariés', icon: <InboxIcon />, count: toTriage },
+    { to: '/elus/demandes', label: 'Demandes', long: 'Demandes salariés', icon: <InboxIcon />, count: counts.demandes, hint: 'à trier' },
     { to: '/elus/sujets', label: 'Sujets', long: 'Sujets CSE', icon: <TopicIcon />, also: ['/elus/suivi'] },
-    { to: '/elus/reunions', label: 'Réunions', icon: <EventNoteIcon /> },
+    { to: '/elus/reunions', label: 'Réunions', long: 'Réunions et votes', icon: <EventNoteIcon />, also: ['/elus/votes'], count: counts.votes, hint: 'vote(s) à faire' },
+    { to: '/elus/prets', label: 'Prêts', long: 'Prêts de matériel', icon: <InventoryIcon />, count: counts.prets, hint: 'prêt(s) à suivre' },
     ...(user.role === 'admin' ? [{ to: '/elus/comptes', label: 'Élus', long: 'Élus et réglages', icon: <GroupIcon />, adminOnly: true }] : []),
   ]
-  // Sur téléphone : 4 onglets, la gestion des élus passe dans le menu du compte
+  // Sur téléphone : 5 onglets, la gestion des élus passe dans le menu du compte
   const bottomNav = nav.filter((n) => !n.adminOnly)
   const isActive = (n) => (n.end ? location.pathname === n.to
     : [n.to, ...(n.also || [])].some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`)))
@@ -88,7 +95,7 @@ export default function EluLayout() {
                   <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
                   <ListItemText primary={n.long || n.label} primaryTypographyProps={{ fontWeight: on ? 700 : 400, noWrap: true }} />
                   {n.count > 0 && (
-                    <Box component="span" aria-label={`${n.count} à trier`} sx={{
+                    <Box component="span" aria-label={`${n.count} ${n.hint}`} sx={{
                       ml: 1, flexShrink: 0, minWidth: 22, height: 22, px: 0.75, borderRadius: 11, bgcolor: 'error.main', color: '#fff',
                       fontSize: '0.75rem', fontWeight: 700, display: 'grid', placeItems: 'center',
                     }}>{n.count}</Box>

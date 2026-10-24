@@ -24,8 +24,12 @@ export function PlanDialog({ open, suggestions, onClose }) {
   const [form, setForm] = useState(fill('ordinaire'))
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [touched, setTouched] = useState(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open) { setForm(fill('ordinaire')); setError(null); setBusy(false) } }, [open])
+  useEffect(() => { if (open) { setForm(fill('ordinaire')); setError(null); setBusy(false); setTouched(false) } }, [open])
+  // Les propositions peuvent arriver après l'ouverture : reprises tant que rien n'a été saisi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && !touched) setForm((x) => fill(x.kind)) }, [suggestions])
 
   const submit = async (e) => {
     e.preventDefault()
@@ -45,8 +49,8 @@ export function PlanDialog({ open, suggestions, onClose }) {
             {Object.entries(MEETING_KINDS).map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
           </TextField>
           <TextField label="Date" type="date" InputLabelProps={{ shrink: true }} value={form.meeting_date}
-            onChange={(e) => setForm({ ...form, meeting_date: e.target.value })} />
-          <TextField label="Intitulé" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+            onChange={(e) => { setTouched(true); setForm({ ...form, meeting_date: e.target.value }) }} />
+          <TextField label="Intitulé" value={form.title} onChange={(e) => { setTouched(true); setForm({ ...form, title: e.target.value }) }} />
         </Stack>
       </DialogContent>
       <DialogActions>

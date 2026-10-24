@@ -7,11 +7,14 @@ import InboxIcon from '@mui/icons-material/InboxOutlined'
 import WarningIcon from '@mui/icons-material/WarningAmberOutlined'
 import PersonAddIcon from '@mui/icons-material/PersonAddAltOutlined'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutline'
+import HowToVoteIcon from '@mui/icons-material/HowToVoteOutlined'
+import InventoryIcon from '@mui/icons-material/Inventory2Outlined'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useApp } from '../../App'
 import { api, fmtDay, fmtShort, listElus, MEETING_KINDS } from '../../api'
 import { ErrorAlert, Section } from '../../components'
 import { nextMeetingOf, PlanDialog, suggestionsOf } from './Preparation'
+import { deadlineLabel } from './Votes'
 
 const MAX_ROWS = 5
 const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`
@@ -39,9 +42,14 @@ export default function Dashboard() {
   if (!stats) return error ? <ErrorAlert error={error} /> : <Box sx={{ py: 8, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
 
   const late = stats.commitments_late || 0
+  const toCast = stats.votes_to_cast || []
+  const toRecord = stats.votes_to_record || []
+  const loansLate = stats.loans_late || []
+  const toHand = stats.loans_to_hand || []
   const next = nextMeetingOf(prep)
   const idea = suggestions.ordinaire
-  const nothing = todo.length === 0 && !late && !pendingElus
+  const nothing = todo.length === 0 && !late && !pendingElus && !toCast.length && !toRecord.length && !loansLate.length && !toHand.length
+  const thing = (l) => `${l.equipment}${l.quantity > 1 ? ` (× ${l.quantity})` : ''}`
 
   return (
     <Box sx={{ maxWidth: 860 }}>
@@ -64,6 +72,22 @@ export default function Dashboard() {
               {todo.length > MAX_ROWS && (
                 <TodoRow to="/elus/demandes?vue=tri" icon={<Box sx={{ width: 24 }} />} primary={`Voir les ${todo.length} demandes à trier`} />
               )}
+              {toCast.map((v) => (
+                <TodoRow key={`v${v.id}`} to={`/elus/votes/${v.id}`} icon={<HowToVoteIcon color="primary" />} primary={v.title}
+                  secondary={['Vote en ligne : à vous de voter', deadlineLabel(v.deadline)].filter(Boolean).join(' · ')} />
+              ))}
+              {toRecord.map((v) => (
+                <TodoRow key={`r${v.id}`} to={`/elus/votes/${v.id}`} icon={<HowToVoteIcon />} primary={v.title}
+                  secondary={`Résultat du vote à noter · ${v.meeting_title}, ${fmtShort(v.meeting_date)}`} />
+              ))}
+              {loansLate.map((l) => (
+                <TodoRow key={`l${l.id}`} to="/elus/prets" icon={<InventoryIcon color="error" />} primary={`${thing(l)} : retour en retard`}
+                  secondary={`${l.borrower_name} · retour prévu le ${fmtShort(l.due_date)}`} />
+              ))}
+              {toHand.map((l) => (
+                <TodoRow key={`h${l.id}`} to="/elus/prets" icon={<InventoryIcon />} primary={`${thing(l)} : à remettre`}
+                  secondary={`${l.borrower_name} · réservé à partir du ${fmtShort(l.start_date)}`} />
+              ))}
               {late > 0 && (
                 <TodoRow to="/elus/suivi" icon={<WarningIcon color="error" />}
                   primary={late > 1 ? `${late} engagements de la direction ont dépassé leur délai` : 'Un engagement de la direction a dépassé son délai'} />

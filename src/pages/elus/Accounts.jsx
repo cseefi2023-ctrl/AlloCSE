@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Snackbar, Stack, Switch,
+  Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem,
+  Snackbar, Stack, Switch,
   Tab, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
@@ -31,7 +32,9 @@ export default function Accounts() {
   }
   const save = async (e) => {
     e.preventDefault()
-    if (await change(edit.id, { full_name: edit.full_name, mandate: edit.mandate ?? '', role: edit.role }, 'Compte modifié')) setEdit(null)
+    const patch = { full_name: edit.full_name, mandate: edit.mandate ?? '', role: edit.role }
+    if (edit.can_vote !== edit.was_voting) patch.can_vote = edit.can_vote
+    if (await change(edit.id, patch, 'Compte modifié')) setEdit(null)
   }
   const signupLink = signupUrl()
   const copyLink = async () => {
@@ -92,10 +95,11 @@ export default function Accounts() {
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Typography sx={{ fontWeight: 700 }}>{u.full_name}</Typography>
                       {u.role === 'admin' && <Chip size="small" label="Admin" />}
+                      {u.can_vote === false && <Chip size="small" variant="outlined" label="Sans droit de vote" />}
                     </Stack>
                     <Typography variant="body2" color="text.secondary" noWrap>{u.mandate ? `${u.mandate}, ` : ''}{u.email}</Typography>
                   </Box>
-                  <Button size="small" onClick={() => setEdit({ ...u, mandate: u.mandate || '' })}>Modifier</Button>
+                  <Button size="small" onClick={() => setEdit({ ...u, mandate: u.mandate || '', can_vote: u.can_vote !== false, was_voting: u.can_vote !== false })}>Modifier</Button>
                   <Tooltip title={u.is_active ? 'Compte actif' : 'Compte désactivé'}>
                     <Switch checked={u.is_active} disabled={u.id === user.id}
                       onChange={() => change(u.id, { is_active: !u.is_active }, u.is_active ? 'Compte désactivé' : 'Compte réactivé')}
@@ -123,6 +127,11 @@ export default function Accounts() {
                 <MenuItem value="elu">Élu</MenuItem>
                 <MenuItem value="admin">Administrateur (valide les comptes, règle l’appli)</MenuItem>
               </TextField>
+              <FormControlLabel control={<Checkbox checked={edit.can_vote} onChange={(e) => setEdit({ ...edit, can_vote: e.target.checked })} />}
+                label={<span>Droit de vote
+                  <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                    Pour les votes en ligne entre élus. Décochez par exemple pour un représentant syndical.
+                  </Typography></span>} />
               <Typography variant="body2" color="text.secondary">{edit.email}</Typography>
             </Stack>
           )}
@@ -344,13 +353,14 @@ function DataCard() {
           </Typography>
           <Typography sx={{ mb: 2 }}>
             {sum == null ? '…' : empty ? <strong>L’espace est vide.</strong>
-              : <>Actuellement : <strong>{sum.requests}</strong> demande{sum.requests > 1 ? 's' : ''}, <strong>{sum.subjects}</strong> sujet{sum.subjects > 1 ? 's' : ''}, <strong>{sum.meetings}</strong> réunion{sum.meetings > 1 ? 's' : ''}, <strong>{sum.commitments}</strong> engagement{sum.commitments > 1 ? 's' : ''}.</>}
+              : <>Actuellement : <strong>{sum.requests}</strong> demande{sum.requests > 1 ? 's' : ''}, <strong>{sum.subjects}</strong> sujet{sum.subjects > 1 ? 's' : ''}, <strong>{sum.meetings}</strong> réunion{sum.meetings > 1 ? 's' : ''}, <strong>{sum.commitments}</strong> engagement{sum.commitments > 1 ? 's' : ''}
+                {sum.votes != null && <>, <strong>{sum.votes}</strong> vote{sum.votes > 1 ? 's' : ''}, <strong>{sum.loans}</strong> prêt{sum.loans > 1 ? 's' : ''} de matériel</>}.</>}
           </Typography>
           <Stack spacing={1.5}>
             <DataRow title="Exporter" text="Télécharge toutes les données de l’espace dans un fichier .json.">
               <Button variant="outlined" onClick={doExport} disabled={!!busy || empty}>{busy === 'export' ? 'Export…' : 'Exporter'}</Button>
             </DataRow>
-            <DataRow title="Repartir de zéro" text="Efface les demandes, sujets, réunions et engagements. Exportez d’abord si vous voulez les retrouver.">
+            <DataRow title="Repartir de zéro" text="Efface les demandes, sujets, réunions, engagements, votes, matériel et prêts. Exportez d’abord si vous voulez les retrouver.">
               <Button color="error" variant="outlined" onClick={() => setWipe(true)} disabled={!!busy || empty || sum == null}>Vider l’espace</Button>
             </DataRow>
             <DataRow title="Charger un fichier" text={<>
@@ -364,7 +374,7 @@ function DataCard() {
                 <input hidden type="file" accept=".json,application/json" onChange={(e) => { doImport(e.target.files[0]); e.target.value = '' }} />
               </Button>
             </DataRow>
-            <DataRow title="Exemple AlloCSE" text="Remplit l’espace vide avec un exemple fictif : demandes de salariés, sujets du CSE, deux réunions, engagements de la direction.">
+            <DataRow title="Exemple AlloCSE" text="Remplit l’espace vide avec un exemple fictif : demandes de salariés, sujets du CSE, deux réunions, engagements de la direction, votes, prêts de matériel.">
               <Button variant="outlined" disabled={!!busy || !empty} onClick={() => act('sample', loadSample, 'Exemple chargé.')}>
                 {busy === 'sample' ? 'Chargement…' : 'Charger l’exemple'}
               </Button>
@@ -381,7 +391,7 @@ function DataCard() {
         <DialogTitle>Vider l’espace ?</DialogTitle>
         <DialogContent>
           <Typography sx={{ mb: 2 }}>
-            Toutes les demandes ({sum?.requests}), sujets, réunions et engagements seront définitivement effacés,
+            Toutes les demandes ({sum?.requests}), sujets, réunions, engagements, votes et prêts seront définitivement effacés,
             y compris pour les salariés qui suivent leur demande. Tapez <strong>EFFACER</strong> pour confirmer.
           </Typography>
           <TextField autoFocus fullWidth label="Confirmation" value={confirm} onChange={(e) => setConfirm(e.target.value)} />

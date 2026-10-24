@@ -22,6 +22,9 @@ import NewSubject from './pages/elus/NewSubject'
 import SubjectList from './pages/elus/SubjectList'
 import SubjectDetail from './pages/elus/SubjectDetail'
 import Accounts from './pages/elus/Accounts'
+import Votes from './pages/elus/Votes'
+import VoteDetail from './pages/elus/VoteDetail'
+import Loans from './pages/elus/Loans'
 import Profile from './pages/elus/Profile'
 
 const AppContext = createContext(null)
@@ -107,6 +110,10 @@ export default function App() {
               <Route path="suivi" element={<Gantt />} />
               <Route path="reunions" element={<Meetings />} />
               <Route path="reunions/:id" element={<MeetingDetail />} />
+              <Route path="votes" element={<Votes />} />
+              <Route path="votes/:id" element={<VoteDetail />} />
+              <Route path="prets" element={<Loans view="prets" />} />
+              <Route path="prets/materiel" element={<Loans view="materiel" />} />
               <Route path="comptes" element={<Accounts />} />
               <Route path="profil" element={<Profile />} />
             </Route>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, Collapse, IconButton, Menu, MenuItem, Radio, RadioGroup, Snackbar, Stack, TextField, Tooltip, Typography, useTheme,
+  Alert, Box, Button, Chip, Collapse, IconButton, Menu, MenuItem, Radio, RadioGroup, Snackbar, Stack, TextField, Tooltip, Typography,
+  useMediaQuery, useTheme,
 } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -204,6 +205,9 @@ export function Section({ title, action, children, sx }) {
     </Box>
   )
 }
+
+// Téléphone : les formulaires longs s'ouvrent en plein écran
+export const useNarrow = () => useMediaQuery((t) => t.breakpoints.down('sm'))
 
 // Bloc repliable (historique, réglages secondaires) : fermé par défaut pour alléger l'écran
 export function Fold({ title, children, defaultOpen = false, sx }) {

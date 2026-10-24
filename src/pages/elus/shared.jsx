@@ -119,6 +119,44 @@ export function SubjectsHeader() {
   )
 }
 
+// En-tête commun aux réunions et aux votes : bascule Réunions / Votes, bouton d'action à droite
+export function MeetingsHeader({ action }) {
+  const { pathname } = useLocation()
+  const view = pathname.startsWith('/elus/votes') ? 'votes' : 'reunions'
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5, gap: 1 }}>
+        <Typography variant="h2" component="h1">{view === 'votes' ? 'Votes' : 'Réunions'}</Typography>
+        {action}
+      </Stack>
+      <ToggleButtonGroup size="small" exclusive value={view} aria-label="Réunions ou votes">
+        <ToggleButton value="reunions" component={RouterLink} to="/elus/reunions" sx={{ px: 2 }}>Réunions</ToggleButton>
+        <ToggleButton value="votes" component={RouterLink} to="/elus/votes" sx={{ px: 2 }}>Votes</ToggleButton>
+      </ToggleButtonGroup>
+    </Box>
+  )
+}
+
+// En-tête des prêts de matériel : bascule Prêts / Matériel
+export function LoansHeader({ action }) {
+  const { pathname } = useLocation()
+  const view = pathname.startsWith('/elus/prets/materiel') ? 'materiel' : 'prets'
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5, gap: 1 }}>
+        <Typography variant="h2" component="h1">
+          {view === 'materiel' ? 'Matériel' : <>Prêts<Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}> de matériel</Box></>}
+        </Typography>
+        {action}
+      </Stack>
+      <ToggleButtonGroup size="small" exclusive value={view} aria-label="Prêts ou matériel">
+        <ToggleButton value="prets" component={RouterLink} to="/elus/prets" sx={{ px: 2 }}>Prêts</ToggleButton>
+        <ToggleButton value="materiel" component={RouterLink} to="/elus/prets/materiel" sx={{ px: 2 }}>Matériel</ToggleButton>
+      </ToggleButtonGroup>
+    </Box>
+  )
+}
+
 // Filtres en pastilles : un seul choix actif à la fois
 export function FilterChips({ value, options, onChange }) {
   return (

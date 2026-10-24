@@ -145,6 +145,26 @@ const ROUTES = [
   ['DELETE', /^\/meetings\/\d+\/items\/(\d+)$/, ([item], _, q) => rpc('remove_agenda_item', { p_item_id: Number(item), p_stop_recurring: truthy(q.stop_recurring) })],
   ['PUT', /^\/meetings\/(\d+)\/order$/, ([id], b) => rpc('reorder_agenda', { p_meeting_id: Number(id), p_item_ids: b.item_ids })],
 
+  ['GET', /^\/votes$/, () => rpc('list_votes')],
+  ['POST', /^\/votes$/, (_, b) => rpc('create_vote', { p: b })],
+  ['GET', /^\/votes\/(\d+)$/, ([id]) => rpc('get_vote', { p_id: Number(id) })],
+  ['PATCH', /^\/votes\/(\d+)$/, ([id], b) => rpc('update_vote', { p_id: Number(id), p: b })],
+  ['DELETE', /^\/votes\/(\d+)$/, ([id]) => rpc('delete_vote', { p_id: Number(id) }).then(() => null)],
+  ['POST', /^\/votes\/(\d+)\/ballot$/, ([id], b) => rpc('cast_vote', { p_id: Number(id), p_choice: b.choice })],
+  ['POST', /^\/votes\/(\d+)\/close$/, ([id]) => rpc('close_vote', { p_id: Number(id) })],
+
+  ['GET', /^\/equipment$/, () => rpc('list_equipment')],
+  ['POST', /^\/equipment$/, (_, b) => rpc('save_equipment', { p: b })],
+  ['PATCH', /^\/equipment\/(\d+)$/, ([id], b) => rpc('save_equipment', { p: { ...b, id: Number(id) } })],
+  ['DELETE', /^\/equipment\/(\d+)$/, ([id]) => rpc('delete_equipment', { p_id: Number(id) }).then(() => null)],
+  ['GET', /^\/equipment\/(\d+)\/availability$/, ([id], _, q) => rpc('equipment_availability', {
+    p_id: Number(id), p_from: q.from, p_to: q.to, p_except: q.except ? Number(q.except) : null,
+  })],
+  ['GET', /^\/loans$/, (_, __, q) => rpc('list_loans', { p: { vue: q.vue || null, q: q.q || null, equipment_id: q.equipment_id || null } })],
+  ['POST', /^\/loans$/, (_, b) => rpc('create_loan', { p: b })],
+  ['PATCH', /^\/loans\/(\d+)$/, ([id], b) => rpc('update_loan', { p_id: Number(id), p: b })],
+  ['DELETE', /^\/loans\/(\d+)$/, ([id]) => rpc('delete_loan', { p_id: Number(id) }).then(() => null)],
+
   ['GET', /^\/users$/, () => listElus()],
 ]
 
@@ -251,6 +271,8 @@ export const adminUpdateElu = (id, patch) => rpc('admin_update_elu', {
   p_mandate: patch.mandate ?? null,
   p_role: patch.role ?? null,
   p_is_active: patch.is_active ?? null,
+  // Droit de vote : envoyé seulement s'il change (compatible avec une base pas encore mise à jour)
+  ...(patch.can_vote !== undefined && { p_can_vote: patch.can_vote }),
 })
 export const updateMyProfile = (fullName, mandate) => rpc('update_my_profile', { p_full_name: fullName, p_mandate: mandate || null })
 export const getSettings = () => run(supabase.from('settings').select('*').eq('id', 1).single())

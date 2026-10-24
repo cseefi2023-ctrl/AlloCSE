@@ -36,11 +36,32 @@ const longDate = (d) => {
 
 const lines = (text) => (text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 
+// Résultat d'un vote dans le PV (ligne à compléter si le résultat n'est pas encore noté)
+export function voteLine(v, withTitle = false) {
+  const head = `${v.mode === 'en_ligne' ? 'Vote en ligne des élus' : 'Vote'}${withTitle ? ` « ${v.title} »` : ''}${v.secret ? ' à bulletin secret' : ''}`
+  if (v.mode === 'seance' && !v.counts) return `${head} : pour …, contre …, abstention … (résultat à compléter).`
+  if (v.mode === 'en_ligne' && v.status !== 'clos') return `${head} : en cours.`
+  const counts = v.options.map((o, i) => `${v.standard ? o.toLowerCase() : o} ${v.counts?.[i] ?? 0}`).join(', ')
+  const result = v.result === 'adopte' ? ' Résolution adoptée.'
+    : v.result === 'rejete' ? ' Résolution rejetée.'
+      : v.winners?.length === 1 ? ` Choix retenu : ${v.winners[0]}.` : ''
+  return `${head} : ${counts}.${result}`
+}
+
 // Les points libres deviennent des sections ; les demandes sont regroupées en
 // « questions des PV précédents » (déjà passées en réunion sans réponse), puis en
 // « Questions CSE » par catégorie.
 export function layout({ meeting, held_before: heldBefore, categories, word }) {
   const held = new Set(heldBefore || [])
+  // Votes : rattachés à leur point de l'ordre du jour, sinon regroupés dans une section « Votes » finale
+  const byItem = new Map()
+  const loose = []
+  for (const v of meeting.votes || []) {
+    const it = meeting.items.find((x) => x.id === v.agenda_item_id)
+    if (it && !it.restricted) byItem.set(it.id, [...(byItem.get(it.id) || []), v])
+    else loose.push(v)
+  }
+  const outcomeOf = (it) => [it.outcome, ...(byItem.get(it.id) || []).map((v) => voteLine(v, true))].filter(Boolean).join('\n')
   const before = []
   const after = []
   const carried = []
@@ -54,13 +75,13 @@ export function layout({ meeting, held_before: heldBefore, categories, word }) {
     } else if (it.subject_id == null) {
       const ls = lines(it.wording)
       const block = {
-        title: it.title, text: ls.length === 1 ? ls[0] : null, outcome: it.outcome,
+        title: it.title, text: ls.length === 1 ? ls[0] : null, outcome: outcomeOf(it),
         points: ls.length > 1 ? ls.map((text) => ({ text })) : [], groups: [],
       }
       ;(seenRequest ? after : before).push(block)
     } else {
       seenRequest = true
-      const point = { text: lines(it.wording).join(' ') || it.title, outcome: it.outcome }
+      const point = { text: lines(it.wording).join(' ') || it.title, outcome: outcomeOf(it) }
       if (held.has(it.subject_id)) carried.push(point)
       else {
         const c = it.category || ''
@@ -79,6 +100,7 @@ export function layout({ meeting, held_before: heldBefore, categories, word }) {
     .map(([[c, pts]]) => [(word.sous_titre_categorie || '{categorie}').replaceAll('{categorie}', c), pts])
   if (others.length) groups.push([word.sous_titre_autres, others])
   if (groups.length) blocks.push({ title: word.titre_questions, points: [], groups })
+  if (loose.length) after.push({ title: 'Votes', points: loose.map((v) => ({ text: v.title, outcome: voteLine(v) })), groups: [] })
   return blocks.concat(after)
 }
 
