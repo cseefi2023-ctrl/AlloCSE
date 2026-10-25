@@ -1,9 +1,47 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Alert, Box, Button, Card, CardContent, CircularProgress, InputBase, Stack, TextField, Typography } from '@mui/material'
-import { api, fmtDate, periodLabel } from '../api'
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, InputBase, Stack, TextField, Typography } from '@mui/material'
+import InventoryIcon from '@mui/icons-material/Inventory2Outlined'
+import { api, euros, fmtDate, hasAmount, loanRequestState, periodLabel } from '../api'
 import { ErrorAlert, Fold, KindChip, MessageList, Section, StatusChip, StatusTrack, TicketCode, Timeline } from '../components'
 import { mono, palette } from '../theme'
+
+// Emprunt de matériel : ce que le salarié a demandé et où en est son prêt
+const LOAN = {
+  attente: { severity: 'info', title: 'En attente de la réponse du CSE' },
+  reserve: { severity: 'success', title: 'C’est d’accord : réservé pour vous' },
+  acceptee: { severity: 'success', title: 'Demande acceptée' },
+  sorti: { severity: 'info', title: 'Matériel emprunté' },
+  retard: { severity: 'warning', title: 'Retour attendu' },
+  rendu: { severity: 'success', title: 'Matériel rendu, merci !' },
+  annule: { severity: 'warning', title: 'Réservation annulée' },
+  refusee: { severity: 'warning', title: 'Le CSE n’a pas pu accepter cette demande' },
+}
+
+function LoanCard({ lr }) {
+  const st = loanRequestState(lr)
+  const l = lr.loan
+  const from = l?.start_date || lr.start_date
+  const to = l?.due_date || lr.due_date
+  const qty = l?.quantity || lr.quantity
+  const deposit = l ? l.deposit : lr.deposit
+  const when = st === 'sorti' ? `À rendre le ${fmtDate(to)}`
+    : st === 'retard' ? `Le retour était prévu le ${fmtDate(to)} : pensez à rapporter le matériel au CSE.`
+      : st === 'rendu' && l.returned_on ? `Rendu le ${fmtDate(l.returned_on)}`
+        : `Du ${fmtDate(from)} au ${fmtDate(to)}`
+  return (
+    <Alert severity={LOAN[st].severity} icon={<InventoryIcon />} sx={{ mb: 3, '& .MuiAlert-message': { width: '100%' } }}>
+      <Typography variant="h4" component="h2">{LOAN[st].title}</Typography>
+      <Typography sx={{ fontWeight: 700, mt: 0.5, overflowWrap: 'anywhere' }}>
+        {lr.equipment_name || 'Matériel'}{qty > 1 ? ` × ${qty}` : ''}
+      </Typography>
+      <Typography>{when}</Typography>
+      {hasAmount(deposit) && ['attente', 'reserve', 'acceptee', 'sorti', 'retard'].includes(st) && (
+        <Typography variant="body2" sx={{ mt: 0.5 }}>Caution demandée : {euros(deposit)}</Typography>
+      )}
+    </Alert>
+  )
+}
 
 export default function Track() {
   const { code } = useParams()
@@ -65,19 +103,22 @@ export default function Track() {
   }
 
   const answers = data.messages.filter((m) => m.is_answer)
+  const lr = data.loan_request
   return (
     <Box sx={{ pt: { xs: 1, sm: 3 } }}>
       <TicketCode code={data.tracking_code} compact />
       <Stack direction="row" spacing={1} sx={{ mt: 3, mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
         <StatusChip status={data.status} />
-        <KindChip kind={data.kind} temporality={data.temporality} />
+        {lr ? <Chip size="small" variant="outlined" label="Emprunt de matériel" /> : <KindChip kind={data.kind} temporality={data.temporality} />}
       </Stack>
       <Typography variant="h2" component="h1" sx={{ overflowWrap: 'anywhere' }}>{data.subject}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
         {data.category}, déposée le {fmtDate(data.created_at)}
         {data.kind === 'signalement' && periodLabel(data) && <><br />Situation {periodLabel(data)}</>}
       </Typography>
-      <StatusTrack status={data.status} agenda={data.events.some((e) => e.label.includes('ordre du jour'))} />
+      {lr
+        ? <Box sx={{ mt: 2 }}><LoanCard lr={lr} /></Box>
+        : <StatusTrack status={data.status} agenda={data.events.some((e) => e.label.includes('ordre du jour'))} />}
 
       {answers.length > 0 && (
         <Alert severity="success" icon={false} sx={{ mb: 4, '& .MuiAlert-message': { width: '100%' } }}>

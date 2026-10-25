@@ -6,11 +6,15 @@ import QuestionMarkIcon from '@mui/icons-material/QuestionMark'
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import CloseIcon from '@mui/icons-material/Close'
-import { api, myCodes, fmtDate, STATUS } from '../api'
+import InventoryIcon from '@mui/icons-material/Inventory2Outlined'
+import PriorityHighIcon from '@mui/icons-material/PriorityHigh'
+import { useApp } from '../App'
+import { api, myCodes, fmtDate, fmtShort, loanRequestState, STATUS } from '../api'
 import { mono, palette } from '../theme'
 import { tenant } from '../tenant'
 
 export default function Home() {
+  const { config } = useApp()
   const navigate = useNavigate()
   const [code, setCode] = useState('')
   const [codes, setCodes] = useState(myCodes.list())
@@ -31,6 +35,7 @@ export default function Home() {
     e.preventDefault()
     if (code.trim()) navigate(`/suivi/${encodeURIComponent(code.trim())}`)
   }
+  const loans = config?.equipment_count > 0
 
   return (
     <>
@@ -51,9 +56,13 @@ export default function Home() {
         )}
       </Box>
 
-      <Box sx={{ mb: 5, maxWidth: 560 }}>
+      <Box sx={{ mb: 5, display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: loans ? '1fr 1fr' : '1fr' }, maxWidth: loans ? 860 : 560 }}>
         <ActionCard to="/deposer" icon={<EditNoteIcon fontSize="large" />} title="Écrire au CSE"
           text="Une question à poser ou un problème à signaler : vous choisirez à l’étape suivante." primary />
+        {loans && (
+          <ActionCard to="/emprunter" icon={<InventoryIcon fontSize="large" />} title="Emprunter du matériel"
+            text="Le CSE prête du matériel aux salariés : choisissez-le et vos dates, les élus vous répondent." />
+        )}
       </Box>
 
       <Box component="section" aria-labelledby="suivi-titre" sx={{ mb: 5 }}>
@@ -120,17 +129,36 @@ export default function Home() {
 const TICKET = {
   done: { color: '#2E7D5B', tint: 'rgba(46,125,91,0.13)', icon: <CheckIcon fontSize="small" /> },
   question: { color: '#C2410C', tint: 'rgba(194,65,12,0.11)', icon: <QuestionMarkIcon fontSize="small" />, label: 'Le CSE vous a posé une question' },
+  late: { color: '#C2410C', tint: 'rgba(194,65,12,0.11)', icon: <PriorityHighIcon fontSize="small" /> },
   progress: { color: '#2F5FA8', icon: <MoreHorizIcon fontSize="small" /> },
+  no: { color: '#5B6B82', icon: <CloseIcon fontSize="small" /> },
   gone: { color: '#8A93A3', icon: <CloseIcon fontSize="small" />, label: 'Demande introuvable (supprimée)' },
 }
 
 function ticketState(d) {
+  const msgs = d.messages || []
+  const last = msgs[msgs.length - 1]
+  const asked = last && last.author_type === 'elu' && !last.is_answer
+  const lr = d.loan_request
+  if (lr) {
+    // Emprunt de matériel : la réponse des élus, puis l'état du prêt
+    if (asked) return TICKET.question
+    const l = lr.loan
+    switch (loanRequestState(lr)) {
+      case 'reserve': return { ...TICKET.done, label: `Accordé : réservé du ${fmtShort(l.start_date)} au ${fmtShort(l.due_date)}` }
+      case 'acceptee': return { ...TICKET.done, label: 'Demande acceptée' }
+      case 'sorti': return { ...TICKET.progress, label: `À rendre le ${fmtShort(l.due_date)}` }
+      case 'retard': return { ...TICKET.late, label: `Retour attendu depuis le ${fmtShort(l.due_date)}` }
+      case 'rendu': return { ...TICKET.done, label: 'Matériel rendu, merci !' }
+      case 'annule': return { ...TICKET.no, label: 'Réservation annulée' }
+      case 'refusee': return { ...TICKET.no, label: 'Demande refusée' }
+      default: return { ...TICKET.progress, label: 'En attente de la réponse du CSE' }
+    }
+  }
   if (d.status === 'repondue' || d.status === 'close') {
     return { ...TICKET.done, label: d.status === 'close' ? 'Traitée et clôturée' : 'Le CSE a répondu' }
   }
-  const msgs = d.messages || []
-  const last = msgs[msgs.length - 1]
-  if (last && last.author_type === 'elu' && !last.is_answer) return TICKET.question
+  if (asked) return TICKET.question
   return { ...TICKET.progress, label: STATUS[d.status]?.label || 'En cours' }
 }
 

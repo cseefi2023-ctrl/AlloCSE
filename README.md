@@ -14,9 +14,10 @@ Elle est hébergée gratuitement, sans serveur à soi :
 - Cocher **« Me prévenir par e-mail quand ma demande avance »** (une seule adresse à saisir) : un e-mail part à chaque réponse ou message du CSE et à la clôture. L'e-mail ne contient pas la réponse, il invite à la lire dans l'appli. Pour une demande anonyme, l'adresse n'est jamais montrée aux élus et elle est effacée à la clôture.
 - Nom, service et e-mail sont **retenus sur l'appareil** pour la demande suivante (case à décocher sur un poste partagé). La page d'accueil liste les demandes déposées depuis l'appareil, en couleur selon leur état (vert : traitée, orange : question du CSE en attente).
 - Recevoir un **numéro de suivi** (`AC-2026-7KQ4-X9M2`, impossible à deviner). Avec ce numéro, il suit l'avancement, lit la réponse du CSE et peut ajouter des précisions.
+- **Emprunter du matériel** (dès que le CSE a du matériel au catalogue) : choisir le matériel, la quantité et les dates, avec la disponibilité affichée tout de suite ; un numéro de suivi permet de lire la réponse des élus, puis de suivre le prêt (réservé, remis, à rendre, rendu). Lien direct à partager : `…/#/emprunter`.
 
 **Côté élus, avec un compte validé**
-- **Accueil réduit à l'essentiel** : « À faire » (demandes à trier, engagements de la direction en retard, comptes élus à valider) et la prochaine réunion. Quatre onglets : Accueil, Demandes salariés (avec le nombre de demandes à trier), Sujets CSE, Réunions.
+- **Accueil réduit à l'essentiel** : « À faire » (demandes à trier, demandes d'emprunt, votes, prêts à suivre, engagements de la direction en retard, comptes élus à valider) et la prochaine réunion. Cinq onglets : Accueil, Demandes salariés (avec le nombre de demandes à trier), Sujets CSE, Réunions et votes, Prêts de matériel (avec les demandes d'emprunt et les prêts à suivre).
 - Prise en charge, statut ; échéance et priorité dans « Échéance, priorité… » ; notes internes.
 - **Demandes salariés** : tout ce que les salariés ont écrit. Pour chaque demande : **réponse directe** (par exemple les chèques cadeaux, gérés par le CSE lui-même), ou rattachement à un **sujet du CSE**.
 - **Sujets CSE** (`S-2026-001`) : ce que les élus suivent et portent devant la direction. Un sujet regroupe zéro, une ou plusieurs demandes de salariés (question des élus, ou problème soulevé par plusieurs salariés). Il a sa fiche : description, demandes rattachées, réponse transmise à tous les salariés concernés, notes internes, engagements de la direction, réunions, historique. On peut créer un sujet de zéro, rattacher ou détacher des demandes, fusionner deux sujets.
@@ -33,7 +34,7 @@ Elle est hébergée gratuitement, sans serveur à soi :
   - **en ligne entre élus** : pour, contre, abstention, ou 2 à 8 choix libres (devis, destinations…), avec une date limite. Chaque élu vote dans l'appli et peut changer d'avis jusqu'à la clôture ; les résultats ne s'affichent qu'à la clôture ;
   - **bulletin secret** : la base ne garde que la participation, jamais qui a voté quoi, et un vote secret ne se modifie pas ;
   - l'administrateur peut retirer le droit de vote d'un compte (par exemple un représentant syndical).
-- **Prêts de matériel** (tente, barbecue, appareil à raclette…) : catalogue avec quantité, caution et rangement ; prêts et réservations aux salariés, avec vérification de la disponibilité par quantité et par dates ; remise, retour (état du matériel), caution reçue puis rendue. Les retards et les réservations à remettre apparaissent dans « À faire ».
+- **Prêts de matériel** (tente, barbecue, appareil à raclette…) : catalogue avec quantité, caution et rangement ; prêts et réservations aux salariés, avec vérification de la disponibilité par quantité et par dates ; remise, retour (état du matériel), caution reçue puis rendue. Les **demandes d'emprunt des salariés** arrivent en tête des prêts et dans « À faire » : « Accepter » réserve le matériel (dates, quantité et caution modifiables) et envoie la réponse au salarié, « Refuser » lui explique pourquoi. Les retards et les réservations à remettre apparaissent aussi dans « À faire ».
 - **Suivi dans le temps** (dans l'onglet Sujets) : diagramme de Gantt du dépôt à l'échéance, avec les retards, les passages en réunion et les engagements de la direction.
 - Un point de l'ordre du jour qu'un élu n'a pas le droit de voir apparaît chez lui comme « point à accès restreint », y compris dans les documents Word.
 - **Élus et réglages** (administrateurs), en onglets : Élus (validation des comptes, rôles), Réglages (thèmes, phrases types, points fixes, modèles Word), E-mails, Données.
@@ -189,6 +190,7 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
 │   ├── migration_notifications.sql  mise à jour : e-mails aux salariés
 │   ├── migration_sujets.sql    mise à jour : sujets du CSE en fiches à part (convertit les données)
 │   ├── migration_votes_prets.sql  mise à jour : votes du CSE et prêts de matériel (ajoute, ne modifie rien)
+│   ├── migration_emprunts.sql  mise à jour : demandes d'emprunt des salariés (ajoute, ne modifie rien)
 │   ├── demo.sql                transforme une base en démonstration (projet démo uniquement)
 │   └── reset.sql               remise à zéro avant réinstallation
 ├── public/

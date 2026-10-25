@@ -29,14 +29,14 @@ export default function EluLayout() {
   const [counts, setCounts] = useState({})
 
   // Pastilles du menu, rafraîchies à chaque changement de page : demandes à trier, votes qui attendent
-  // la voix de l'élu, prêts en retard ou à remettre
+  // la voix de l'élu, demandes d'emprunt, prêts en retard ou à remettre
   useEffect(() => {
     api('/requests/stats').then((s) => setCounts({
       demandes: s.to_triage || 0,
       votes: (s.votes_to_cast || []).length,
-      prets: (s.loans_late || []).length + (s.loans_to_hand || []).length,
+      prets: (s.loan_requests || []).length + (s.loans_late || []).length + (s.loans_to_hand || []).length,
     })).catch(() => {})
-  }, [location.pathname])
+  }, [location.pathname, location.search])
 
   const nav = [
     { to: '/elus', label: 'Accueil', icon: <HomeIcon />, end: true },

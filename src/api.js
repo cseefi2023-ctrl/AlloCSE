@@ -94,6 +94,11 @@ const ROUTES = [
     return d
   }],
   ['POST', /^\/public\/requests\/([^/]+)\/messages$/, ([code], b) => rpc('add_public_message', { p_code: decodeURIComponent(code), p_body: b.body })],
+  ['GET', /^\/public\/equipment$/, () => rpc('public_equipment')],
+  ['GET', /^\/public\/equipment\/(\d+)\/availability$/, ([id], _, q) => rpc('public_availability', {
+    p_equipment_id: Number(id), p_from: q.from, p_to: q.to,
+  })],
+  ['POST', /^\/public\/loan-requests$/, (_, b) => rpc('submit_loan_request', { p: b })],
 
   ['GET', /^\/requests$/, (_, __, q) => rpc('search_requests', {
     p: {
@@ -104,9 +109,11 @@ const ROUTES = [
       open_only: truthy(q.open_only),
       to_triage: truthy(q.to_triage),
       without_subject: truthy(q.without_subject),
+      loans_todo: truthy(q.loans_todo),
     },
   })],
   ['POST', /^\/requests\/(\d+)\/subject$/, ([id], b) => rpc('link_request', { p_request_id: Number(id), p_subject_id: b?.subject_id ?? null })],
+  ['POST', /^\/requests\/(\d+)\/loan$/, ([id], b) => rpc('decide_loan_request', { p_id: Number(id), p: b })],
 
   ['GET', /^\/subjects$/, (_, __, q) => rpc('search_subjects', {
     p: {
@@ -332,9 +339,33 @@ export const todayIso = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+// Date AAAA-MM-JJ décalée de n jours
+export const plusDays = (iso, n) => {
+  const d = new Date(`${iso}T12:00:00`)
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export const isIsoDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '')
+// Montant en euros : « 150 € », « 12,50 € »
+export const euros = (x) => Number(x).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 2 })
+export const hasAmount = (x) => x != null && Number(x) > 0
 // Lien de suivi partageable (fonctionne sur GitHub Pages grâce au #)
 export const trackingUrl = (code) => `${appBaseUrl()}#/suivi/${code}`
 export const signupUrl = () => `${appBaseUrl()}#/elus/connexion`
+export const borrowUrl = () => `${appBaseUrl()}#/emprunter`
+
+// Demande d'emprunt de matériel : où en est-elle ? (même lecture pour le salarié et les élus)
+export function loanRequestState(lr) {
+  if (!lr) return null
+  const l = lr.loan
+  if (lr.decision === 'refusee') return 'refusee'
+  if (lr.decision === 'acceptee') {
+    if (!l) return 'acceptee'
+    if (l.status === 'sorti') return l.late ? 'retard' : 'sorti'
+    return { reserve: 'reserve', rendu: 'rendu', annule: 'annule' }[l.status] || 'acceptee'
+  }
+  return 'attente'
+}
 
 // Période d'un signalement : « depuis le 12 septembre 2026 », « du … au … », ou '' si inconnue
 export function periodLabel(r) {

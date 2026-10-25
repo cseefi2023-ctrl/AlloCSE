@@ -1,6 +1,6 @@
 -- =============================================================================
---  AlloCSE — schéma Supabase (version 4 : sujets du CSE, demandes, réunions, votes, prêts de matériel,
---  Gantt, Word, e-mails)
+--  AlloCSE — schéma Supabase (version 4 : sujets du CSE, demandes, réunions, votes, prêts de matériel
+--  et demandes d'emprunt des salariés, Gantt, Word, e-mails)
 --  À exécuter UNE FOIS dans Supabase : SQL Editor > New query > coller > Run.
 --  (Base déjà créée avec une version précédente : exécuter d'abord reset.sql.)
 --
@@ -155,7 +155,15 @@ create table public.requests (
   subject_id        bigint references public.subjects (id) on delete set null,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
-  check (situation_end is null or situation_start is null or situation_end >= situation_start)
+  -- Demande d'emprunt de matériel : matériel (clé ajoutée après sa table), quantité, dates,
+  -- réponse des élus (null : en attente)
+  loan_equipment_id bigint,
+  loan_quantity     int check (loan_quantity between 1 and 999),
+  loan_start        date,
+  loan_due          date,
+  loan_decision     text check (loan_decision in ('acceptee', 'refusee')),
+  check (situation_end is null or situation_start is null or situation_end >= situation_start),
+  constraint requests_loan_dates_check check (loan_due is null or loan_start is null or loan_due >= loan_start)
 );
 create index requests_status_idx on public.requests (status);
 create index requests_subject_idx on public.requests (subject_id);
@@ -342,9 +350,13 @@ create table public.loans (
   created_by       uuid references public.elus (id) on delete set null,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
+  request_id       bigint references public.requests (id) on delete set null,  -- demande d'emprunt du salarié
   check (due_date >= start_date)
 );
 create index loans_equipment_idx on public.loans (equipment_id);
+create index loans_request_idx on public.loans (request_id);
+alter table public.requests add constraint requests_loan_equipment_id_fkey
+  foreign key (loan_equipment_id) references public.equipment (id) on delete set null;
 
 -- -----------------------------------------------------------------------------
 --  Droits : fonctions d'aide
@@ -650,6 +662,27 @@ language sql stable security definer set search_path = public as $$
   from (select sid as wanted) w left join subjects s on s.id = w.wanted
 $$;
 
+-- Demande d'emprunt de matériel (null pour une demande ordinaire) : ce qui est demandé, la réponse
+-- des élus, le prêt qui en découle. Aucune donnée d'élu : la page de suivi du salarié l'affiche aussi.
+create function private.loan_request_json(r public.requests) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare e equipment; l loans;
+begin
+  if r.loan_start is null then return null; end if;
+  select * into e from equipment where id = r.loan_equipment_id;
+  select * into l from loans where request_id = r.id order by id desc limit 1;
+  return jsonb_build_object(
+    'equipment_id', r.loan_equipment_id, 'equipment_name', e.name, 'equipment_quantity', e.quantity,
+    'equipment_active', coalesce(e.active, false), 'deposit', e.deposit,
+    'quantity', r.loan_quantity, 'start_date', r.loan_start, 'due_date', r.loan_due, 'decision', r.loan_decision,
+    -- Quantité encore libre aux dates demandées, tant que les élus n'ont pas répondu
+    'free', case when r.loan_decision is null and e.active then private.equipment_free(e.id, r.loan_start, r.loan_due) end,
+    'loan', case when l.id is not null then jsonb_build_object(
+              'id', l.id, 'status', l.status, 'quantity', l.quantity, 'start_date', l.start_date,
+              'due_date', l.due_date, 'returned_on', l.returned_on, 'deposit', l.deposit,
+              'late', l.status = 'sorti' and l.due_date < private.today()) end);
+end $$;
+
 create function private.request_summary(r public.requests) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
@@ -659,6 +692,7 @@ language sql stable security definer set search_path = public as $$
     'anonymous', r.anonymous, 'requester_name', r.requester_name, 'visible_to_all', r.visible_to_all,
     'assignee', private.elu_json(r.assignee_id), 'due_date', r.due_date,
     'subject_ref', private.subject_ref(r.subject_id),
+    'loan_request', private.loan_request_json(r),
     'created_at', r.created_at, 'updated_at', r.updated_at)
 $$;
 
@@ -872,6 +906,8 @@ language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
     'app_name', s.app_name, 'organisation', s.organisation, 'contact', s.contact,
     'tracking_prefix', s.tracking_prefix, 'categories', to_jsonb(s.categories), 'demo', s.is_demo,
+    -- Matériel que les salariés peuvent demander à emprunter
+    'equipment_count', (select count(*) from equipment e where e.active),
     'elus', coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'full_name', e.full_name, 'mandate', e.mandate)
                                        order by e.full_name)
                       from elus e where e.is_active), '[]'::jsonb))
@@ -887,6 +923,7 @@ language sql stable security definer set search_path = public as $$
     'status', r.status, 'created_at', r.created_at, 'updated_at', r.updated_at,
     'visible_to_all', r.visible_to_all,
     'notify', exists (select 1 from request_notify n where n.request_id = r.id),
+    'loan_request', private.loan_request_json(r),
     'viewers', coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'full_name', e.full_name) order by e.full_name)
                          from request_viewers v join elus e on e.id = v.elu_id where v.request_id = r.id), '[]'::jsonb),
     'commitments', coalesce((select jsonb_agg(jsonb_build_object('text', x ->> 'text', 'due_date', x -> 'due_date',
@@ -997,6 +1034,103 @@ begin
     'message', 'Conservez précieusement ce numéro : il est le seul moyen de suivre votre demande et de lire la réponse du CSE.');
 end $$;
 
+-- Emprunt de matériel : ce que le CSE prête, la disponibilité sur des dates, la demande du salarié
+create function public.public_equipment() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', e.id, 'name', e.name, 'description', e.description,
+                                               'quantity', e.quantity, 'deposit', e.deposit)
+                            order by lower(e.name), e.id), '[]'::jsonb)
+  from equipment e where e.active
+$$;
+
+create function public.public_availability(p_equipment_id bigint, p_from date, p_to date) returns int
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not exists (select 1 from equipment where id = p_equipment_id and active) then
+    raise exception 'Ce matériel n''est pas prêté.' using errcode = 'P0002';
+  end if;
+  perform private.check_loan_dates(p_from, p_to);
+  return private.equipment_free(p_equipment_id, p_from, p_to);
+end $$;
+
+-- p = { equipment_id, quantity, start_date, due_date, requester_name, requester_service, requester_email,
+--       notify, message }. Les élus acceptent (le prêt est alors réservé) ou refusent.
+create function public.submit_loan_request(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  e equipment;
+  rid bigint;
+  code text;
+  attempts int := 0;
+  q int := coalesce(nullif(p ->> 'quantity', '')::int, 1);
+  d1 date := nullif(p ->> 'start_date', '')::date;
+  d2 date := nullif(p ->> 'due_date', '')::date;
+  who text := nullif(trim(p ->> 'requester_name'), '');
+  service text := nullif(trim(p ->> 'requester_service'), '');
+  email text := nullif(lower(trim(p ->> 'requester_email')), '');
+  notify boolean := coalesce((p ->> 'notify')::boolean, false);
+  msg text := nullif(trim(p ->> 'message'), '');
+  free int;
+begin
+  select * into e from equipment where id = nullif(p ->> 'equipment_id', '')::bigint and active;
+  if e.id is null then raise exception 'Choisissez le matériel à emprunter.' using errcode = '22023'; end if;
+  perform private.check_loan_dates(d1, d2);
+  if d1 < private.today() then raise exception 'La date d''emprunt est déjà passée.' using errcode = '22023'; end if;
+  if d1 > private.today() + 366 then
+    raise exception 'Demandez au plus un an à l''avance.' using errcode = '22023';
+  end if;
+  if q < 1 or q > e.quantity then
+    raise exception 'Quantité possible : de 1 à %.', e.quantity using errcode = '22023';
+  end if;
+  if char_length(coalesce(who, '')) < 2 then
+    raise exception 'Indiquez votre nom et votre prénom.' using errcode = '22023';
+  end if;
+  if char_length(who) > 120 or char_length(coalesce(service, '')) > 120 then
+    raise exception 'Nom ou service trop long.' using errcode = '22023';
+  end if;
+  if email is not null and (email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' or char_length(email) > 190) then
+    raise exception 'L''adresse e-mail ne semble pas valide.' using errcode = '22023';
+  end if;
+  if notify and email is null then
+    raise exception 'Indiquez votre adresse e-mail pour être prévenu.' using errcode = '22023';
+  end if;
+  if char_length(coalesce(msg, '')) > 2000 then
+    raise exception 'Message trop long (2000 caractères au plus).' using errcode = '22023';
+  end if;
+  free := private.equipment_free(e.id, d1, d2);
+  if free < q then
+    raise exception '%', case when free <= 0 then 'Ce matériel est déjà réservé sur ces dates : choisissez d''autres dates.'
+                              else 'Seulement ' || free || ' disponible' || case when free > 1 then 's' else '' end
+                                   || ' sur ces dates.' end
+      using errcode = '22023';
+  end if;
+
+  loop
+    attempts := attempts + 1;
+    code := private.new_tracking_code();
+    begin
+      insert into requests (tracking_code, kind, category, subject, description, anonymous, requester_name,
+                            requester_email, requester_service, visible_to_all,
+                            loan_equipment_id, loan_quantity, loan_start, loan_due)
+      values (code, 'demande', 'Prêt de matériel', 'Emprunt : ' || e.name,
+              'Demande d''emprunt : ' || e.name || case when q > 1 then ' (× ' || q || ')' else '' end
+                || ', du ' || private.fr_date(d1) || ' au ' || private.fr_date(d2) || '.' || coalesce(E'\n\n' || msg, ''),
+              false, who, email, service, true, e.id, q, d1, d2)
+      returning id into rid;
+      exit;
+    exception when unique_violation then
+      if attempts >= 5 then raise; end if;
+    end;
+  end loop;
+
+  if notify then
+    insert into request_notify (request_id, email) values (rid, email);
+  end if;
+  insert into events (request_id, label) values (rid, 'Demande d''emprunt déposée');
+  return jsonb_build_object('tracking_code', code,
+    'message', 'Conservez ce numéro : il permet de suivre votre demande et de lire la réponse du CSE.');
+end $$;
+
 create function public.track_request(p_code text) returns jsonb
 language sql stable security definer set search_path = public as $$
   select private.public_view(id) from requests where tracking_code = private.normalize_code(p_code)
@@ -1029,7 +1163,7 @@ end $$;
 --  Élus — demandes des salariés
 -- -----------------------------------------------------------------------------
 
--- Filtres : { status: [..], kind, q, mine, open_only, to_triage, subject_id }. Droits de l'élu (RLS).
+-- Filtres : { status: [..], kind, q, mine, open_only, to_triage, without_subject, loans_todo }. Droits de l'élu (RLS).
 create function public.search_requests(p jsonb default '{}') returns jsonb
 language sql stable security invoker set search_path = public as $$
   select coalesce(jsonb_agg(private.request_summary(r) order by r.updated_at desc, r.id desc), '[]'::jsonb)
@@ -1038,8 +1172,13 @@ language sql stable security invoker set search_path = public as $$
     where (p -> 'status' is null or jsonb_typeof(p -> 'status') <> 'array' or jsonb_array_length(p -> 'status') = 0
            or r.status in (select jsonb_array_elements_text(p -> 'status')))
       and (not coalesce((p ->> 'open_only')::boolean, false) or r.status <> 'close')
-      -- À trier : pas de sujet et pas encore de réponse (même si un élu a déjà échangé avec le salarié)
-      and (not coalesce((p ->> 'to_triage')::boolean, false) or (r.subject_id is null and r.status in ('nouvelle', 'en_cours')))
+      -- À trier : pas de sujet et pas encore de réponse (même si un élu a déjà échangé avec le salarié) ;
+      -- les demandes d'emprunt se traitent avec les prêts
+      and (not coalesce((p ->> 'to_triage')::boolean, false)
+           or (r.subject_id is null and r.status in ('nouvelle', 'en_cours') and r.loan_start is null))
+      -- Demandes d'emprunt qui attendent les élus : pas encore de réponse, ou nouveau message du salarié
+      and (not coalesce((p ->> 'loans_todo')::boolean, false)
+           or (r.loan_start is not null and r.status in ('nouvelle', 'en_cours')))
       and (not coalesce((p ->> 'without_subject')::boolean, false) or r.subject_id is null)
       and (nullif(p ->> 'kind', '') is null or r.kind = p ->> 'kind')
       and (not coalesce((p ->> 'mine')::boolean, false) or r.assignee_id = auth.uid())
@@ -1076,9 +1215,18 @@ begin
     'mine', (select count(*) from subjects s where s.assignee_id = auth.uid() and s.status <> 'clos'
              and public.can_see_subject(s.id)),
     'to_triage', (select count(*) from requests r where r.subject_id is null and r.status in ('nouvelle', 'en_cours')
-                  and public.can_see_request(r.id)),
+                  and r.loan_start is null and public.can_see_request(r.id)),
     'commitments_late', (select count(*) from commitments c where c.status = 'en_attente'
                          and c.due_date < private.today() and public.can_see_subject(c.subject_id)),
+    -- Demandes d'emprunt des salariés : à accepter ou refuser, ou nouveau message après la réponse
+    'loan_requests', coalesce((select jsonb_agg(jsonb_build_object('id', r.id, 'subject', r.subject, 'equipment', e.name,
+                                                                   'quantity', r.loan_quantity, 'requester_name', r.requester_name,
+                                                                   'start_date', r.loan_start, 'due_date', r.loan_due,
+                                                                   'decision', r.loan_decision)
+                                                order by r.loan_start, r.id)
+                               from requests r left join equipment e on e.id = r.loan_equipment_id
+                               where r.loan_start is not null and r.status in ('nouvelle', 'en_cours')
+                                 and public.can_see_request(r.id)), '[]'::jsonb),
     -- Votes en ligne qui attendent la voix de l'élu ; votes en séance dont le résultat reste à noter
     'votes_to_cast', coalesce((select jsonb_agg(jsonb_build_object('id', v.id, 'title', v.title, 'deadline', v.deadline)
                                                 order by v.deadline nulls last, v.id)
@@ -2775,12 +2923,84 @@ begin
                                  case when n.status = 'sorti' then greatest(n.due_date, private.today()) else n.due_date end,
                                  n.quantity, l.id);
   end if;
+  -- Prêt issu d'une demande d'emprunt : le salarié suit son prêt avec son numéro
+  if l.request_id is not null then
+    if n.status is distinct from l.status then
+      perform private.add_event(l.request_id, case n.status
+        when 'sorti' then 'Matériel remis'
+        when 'rendu' then 'Matériel rendu le ' || private.fr_date(n.returned_on)
+        when 'annule' then 'Réservation annulée'
+        else 'Réservé du ' || private.fr_date(n.start_date) || ' au ' || private.fr_date(n.due_date) end);
+    elsif (n.start_date, n.due_date) is distinct from (l.start_date, l.due_date) and n.status in ('reserve', 'sorti') then
+      perform private.add_event(l.request_id, 'Dates du prêt : du ' || private.fr_date(n.start_date)
+                                              || ' au ' || private.fr_date(n.due_date));
+    end if;
+  end if;
   update loans set borrower_name = n.borrower_name, borrower_service = n.borrower_service,
     borrower_contact = n.borrower_contact, start_date = n.start_date, due_date = n.due_date, quantity = n.quantity,
     status = n.status, deposit = n.deposit, deposit_received = n.deposit_received, deposit_returned = n.deposit_returned,
     returned_on = n.returned_on, return_state = n.return_state, notes = n.notes, updated_at = now()
   where id = l.id returning * into l;
   return private.loan_json(l);
+end $$;
+
+-- Réponse des élus à une demande d'emprunt : accepter (le prêt est réservé) ou refuser.
+-- p = { accept, message (réponse au salarié), quantity, start_date, due_date, deposit }
+create function public.decide_loan_request(p_id bigint, p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  r requests; e equipment; me elus;
+  ok boolean := coalesce((p ->> 'accept')::boolean, false);
+  q int; d1 date; d2 date; dep numeric;
+  body text := nullif(trim(p ->> 'message'), '');
+begin
+  r := private.require_visible(p_id);
+  if r.loan_start is null then
+    raise exception 'Ce n''est pas une demande d''emprunt.' using errcode = '22023';
+  end if;
+  if r.status = 'close' then
+    raise exception 'Demande clôturée : rouvrez-la avant de répondre.' using errcode = '22023';
+  end if;
+  if exists (select 1 from loans where request_id = r.id and status in ('reserve', 'sorti')) then
+    raise exception 'Un prêt est déjà en cours pour cette demande.' using errcode = '22023';
+  end if;
+  if char_length(coalesce(body, '')) > 10000 then
+    raise exception 'Message trop long.' using errcode = '22023';
+  end if;
+  select * into me from elus where id = auth.uid();
+  if ok then
+    select * into e from equipment where id = r.loan_equipment_id;
+    if e.id is null then raise exception 'Ce matériel n''existe plus.' using errcode = '22023'; end if;
+    if not e.active then raise exception 'Ce matériel est retiré du prêt.' using errcode = '22023'; end if;
+    q := coalesce(nullif(p ->> 'quantity', '')::int, r.loan_quantity, 1);
+    d1 := coalesce(nullif(p ->> 'start_date', '')::date, r.loan_start);
+    d2 := coalesce(nullif(p ->> 'due_date', '')::date, r.loan_due);
+    perform private.check_loan_dates(d1, d2);
+    if q < 1 or q > e.quantity then
+      raise exception 'Quantité possible : de 1 à %.', e.quantity using errcode = '22023';
+    end if;
+    dep := case when p ? 'deposit' then nullif(p ->> 'deposit', '')::numeric else e.deposit end;
+    if dep < 0 then raise exception 'La caution ne peut pas être négative.' using errcode = '22023'; end if;
+    perform private.require_free(e.id, d1, d2, q);
+    insert into loans (equipment_id, quantity, borrower_name, borrower_service, borrower_contact, start_date, due_date,
+                       status, deposit, created_by, request_id)
+    values (e.id, q, coalesce(r.requester_name, 'Salarié'), r.requester_service, r.requester_email, d1, d2, 'reserve',
+            dep, auth.uid(), r.id);
+    update requests set loan_decision = 'acceptee', loan_quantity = q, loan_start = d1, loan_due = d2 where id = r.id;
+    body := coalesce(body, 'C''est d''accord : ' || e.name || case when q > 1 then ' (× ' || q || ')' else '' end
+                           || ' est réservé pour vous du ' || private.fr_date(d1) || ' au ' || private.fr_date(d2) || '.'
+                           || case when dep > 0 then ' Une caution de ' || replace(trim_scale(dep)::text, '.', ',')
+                                                     || ' € vous sera demandée.' else '' end);
+    perform private.add_event(r.id, 'Emprunt accepté : réservé du ' || private.fr_date(d1) || ' au ' || private.fr_date(d2));
+  else
+    update requests set loan_decision = 'refusee' where id = r.id;
+    body := coalesce(body, 'Le CSE ne peut pas donner suite à votre demande d''emprunt.');
+    perform private.add_event(r.id, 'Demande d''emprunt refusée');
+  end if;
+  insert into messages (request_id, author_type, author_id, body, is_answer) values (r.id, 'elu', me.id, body, true);
+  perform private.set_status(r.id, 'repondue');
+  update requests set updated_at = now() where id = r.id;
+  return private.request_detail(p_id);
 end $$;
 
 create function public.delete_loan(p_id bigint) returns void
@@ -2990,7 +3210,7 @@ declare
   fontaine requests; cheques requests; cheques2 requests; samedi requests; parking requests;
   transport requests; chauffage requests;
   s_fontaine subjects; s_parking subjects; s_transport subjects; s_nao subjects;
-  m1 meetings; m2 meetings; rp bigint; pos int; main_name text; answer text; vid bigint;
+  m1 meetings; m2 meetings; rp bigint; pos int; main_name text; answer text; vid bigint; pret requests;
 begin
   select full_name into main_name from elus where id = main;
 
@@ -3135,6 +3355,29 @@ begin
     ((select id from equipment where name = 'Vidéoprojecteur et écran'), 1, 'Julie Moreau', 'Production', null,
      t - 21, t - 18, 'rendu', 100, true, true, t - 18, 'bon', main, private.ago(21), private.ago(18));
 
+  -- Demandes d'emprunt des salariés : la tente réservée vient d'une demande acceptée, le nettoyeur attend les élus
+  pret := private.sample_request('demande', null, 'Prêt de matériel', 'Emprunt : Tente de réception 3 × 6 m',
+    'Demande d''emprunt : Tente de réception 3 × 6 m, du ' || private.fr_date(t + 12) || ' au ' || private.fr_date(t + 14)
+      || E'.\n\nPour la fête des voisins de notre lotissement.', 'Paul Martin', 'Atelier usinage', false, 4);
+  update requests set requester_email = 'paul.martin@exemple.fr', loan_quantity = 1, loan_start = t + 12, loan_due = t + 14,
+    loan_equipment_id = (select id from equipment where name = 'Tente de réception 3 × 6 m'), loan_decision = 'acceptee'
+  where id = pret.id;
+  update events set label = 'Demande d''emprunt déposée' where request_id = pret.id;
+  update loans set request_id = pret.id where borrower_name = 'Paul Martin' and status = 'reserve';
+  insert into messages (request_id, author_type, author_id, body, is_answer)
+  values (pret.id, 'elu', main, 'C''est d''accord : la tente est réservée pour vous du ' || private.fr_date(t + 12) || ' au '
+          || private.fr_date(t + 14) || '. Une caution de 150 € vous sera demandée au local du CSE.', true);
+  perform private.add_event(pret.id, 'Emprunt accepté : réservé du ' || private.fr_date(t + 12) || ' au ' || private.fr_date(t + 14));
+  perform private.set_status(pret.id, 'repondue');
+  perform private.stamp(private.ago(3, 10));
+  pret := private.sample_request('demande', null, 'Prêt de matériel', 'Emprunt : Nettoyeur haute pression',
+    'Demande d''emprunt : Nettoyeur haute pression, du ' || private.fr_date(t + 3) || ' au ' || private.fr_date(t + 4)
+      || E'.\n\nPour nettoyer ma terrasse ce week-end.', 'Thomas Girard', 'Atelier montage', false, 1);
+  update requests set loan_quantity = 1, loan_start = t + 3, loan_due = t + 4,
+    loan_equipment_id = (select id from equipment where name = 'Nettoyeur haute pression')
+  where id = pret.id;
+  update events set label = 'Demande d''emprunt déposée' where request_id = pret.id;
+
   -- Dernière activité de chaque demande et de chaque sujet
   update requests r set updated_at = x.last
   from (select q.id, coalesce((select max(e.created_at) from events e where e.request_id = q.id), q.created_at) last
@@ -3276,11 +3519,18 @@ begin
     rp.start_date := rp.start_date + days; rp.end_date := rp.end_date + days; rp.created_at := rp.created_at + delta;
     insert into recurring_points overriding system value select (rp).*;
   end loop;
+  -- Le matériel avant les demandes : une demande d'emprunt y fait référence
+  for x in select * from jsonb_array_elements(coalesce(p -> 'equipment', '[]')) loop
+    eq := jsonb_populate_record(null::equipment, x);
+    eq.created_at := eq.created_at + delta;
+    insert into equipment overriding system value select (eq).*;
+  end loop;
   for x in select * from jsonb_array_elements(coalesce(p -> 'requests', '[]')) loop
     r := jsonb_populate_record(null::requests, x);
     r.assignee_id := private.elu_by_email(x ->> 'assignee_email');
     r.created_at := r.created_at + delta; r.updated_at := r.updated_at + delta;
     r.situation_start := r.situation_start + days; r.situation_end := r.situation_end + days; r.due_date := r.due_date + days;
+    r.loan_start := r.loan_start + days; r.loan_due := r.loan_due + days;
     insert into requests overriding system value select (r).*;
     if not r.visible_to_all then
       -- Aucun élu destinataire retrouvé : l'administrateur qui importe la reçoit, pour qu'elle ne soit pas perdue
@@ -3323,11 +3573,6 @@ begin
   end loop;
   for x in select * from jsonb_array_elements(coalesce(p -> 'vote_secret_tally', '[]')) loop
     insert into vote_secret_tally select (jsonb_populate_record(null::vote_secret_tally, x)).*;
-  end loop;
-  for x in select * from jsonb_array_elements(coalesce(p -> 'equipment', '[]')) loop
-    eq := jsonb_populate_record(null::equipment, x);
-    eq.created_at := eq.created_at + delta;
-    insert into equipment overriding system value select (eq).*;
   end loop;
   for x in select * from jsonb_array_elements(coalesce(p -> 'loans', '[]')) loop
     lo := jsonb_populate_record(null::loans, x);
@@ -3572,7 +3817,8 @@ revoke execute on all functions in schema private from public, anon, authenticat
 
 -- Salariés (sans compte) et élus
 grant execute on function public.public_config(), public.track_request(text),
-  public.add_public_message(text, text), public.submit_request(jsonb)
+  public.add_public_message(text, text), public.submit_request(jsonb),
+  public.public_equipment(), public.public_availability(bigint, date, date), public.submit_loan_request(jsonb)
   to anon, authenticated;
 
 -- Élus connectés (chaque fonction vérifie en plus que le compte est validé)
@@ -3596,6 +3842,7 @@ grant execute on function
   public.cast_vote(bigint, int), public.close_vote(bigint), public.delete_vote(bigint), public.list_equipment(),
   public.save_equipment(jsonb), public.delete_equipment(bigint), public.equipment_availability(bigint, date, date, bigint), public.list_loans(jsonb),
   public.create_loan(jsonb), public.update_loan(bigint, jsonb), public.delete_loan(bigint),
+  public.decide_loan_request(bigint, jsonb),
   public.admin_data_summary(), public.admin_wipe_data(text), public.admin_load_sample(),
   public.admin_export_data(), public.admin_import_data(jsonb, boolean),
   public.admin_notification_status(), public.admin_send_test_mail()

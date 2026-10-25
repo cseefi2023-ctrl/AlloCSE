@@ -26,7 +26,8 @@ begin
   end if;
 end $$;
 
-drop table if exists public.notifications, public.request_notify, public.commitments, public.agenda_items,
+drop table if exists public.vote_secret_tally, public.vote_ballots, public.votes, public.loans, public.equipment,
+  public.notifications, public.request_notify, public.commitments, public.agenda_items,
   public.recurring_points, public.meetings, public.events, public.messages, public.request_viewers, public.requests,
   public.subject_events, public.subject_notes, public.subject_viewers, public.subjects,
   public.elus, public.settings cascade;

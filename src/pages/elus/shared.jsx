@@ -1,21 +1,48 @@
 import { Link as RouterLink, useLocation } from 'react-router-dom'
-import { Box, Button, Card, CardActionArea, Chip, Stack, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Card, CardActionArea, Chip, Stack, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useTheme } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import PriorityHighIcon from '@mui/icons-material/PriorityHigh'
 import WarningIcon from '@mui/icons-material/WarningAmberOutlined'
-import { fmtShort } from '../../api'
+import { fmtShort, loanRequestState } from '../../api'
 import { KindChip, StatusChip, SubjectStatusChip } from '../../components'
+import { palette } from '../../theme'
 
-// Une demande est « à trier » tant qu'elle n'a ni sujet ni réponse
-export const isToTriage = (r) => !r.subject_ref && (r.status === 'nouvelle' || r.status === 'en_cours')
+// Une demande est « à trier » tant qu'elle n'a ni sujet ni réponse (les demandes d'emprunt se traitent dans les prêts)
+export const isToTriage = (r) => !r.subject_ref && !r.loan_request && (r.status === 'nouvelle' || r.status === 'en_cours')
 
 export function TriageChip() {
   return <Chip size="small" label="À trier" variant="outlined" sx={{ borderStyle: 'dashed', fontWeight: 700 }} />
 }
 
+export const tint = (c) => ({ bgcolor: `${c}1F`, color: c, border: `1px solid ${c}55` })
+
+// Demande d'emprunt de matériel : à valider, puis l'état du prêt
+export function LoanRequestChip({ lr }) {
+  const theme = useTheme()
+  const blue = theme.palette.mode === 'dark' ? '#8FB0EA' : '#2F5FA8'
+  switch (loanRequestState(lr)) {
+    case 'attente': return <Chip size="small" label="Emprunt à valider" sx={{ bgcolor: `${palette.signal}33`, color: 'text.primary', border: `1px solid ${palette.signal}` }} />
+    case 'reserve': return <Chip size="small" label="Emprunt accepté" sx={tint(palette.ok)} />
+    case 'acceptee': return <Chip size="small" label="Emprunt accepté" sx={tint(palette.ok)} />
+    case 'sorti': return <Chip size="small" label="Matériel sorti" sx={tint(blue)} />
+    case 'retard': return <Chip size="small" label="Retour en retard" sx={tint(palette.alert)} />
+    case 'rendu': return <Chip size="small" label="Matériel rendu" sx={tint(palette.ok)} />
+    case 'annule': return <Chip size="small" variant="outlined" label="Réservation annulée" />
+    default: return <Chip size="small" variant="outlined" label="Emprunt refusé" />
+  }
+}
+
 // Pastilles d'une demande : « À trier » ou son statut, puis « Signalement » s'il y a lieu
 export function RequestChips({ r }) {
+  if (r.loan_request) {
+    return (
+      <>
+        <LoanRequestChip lr={r.loan_request} />
+        {(r.status === 'close' || (r.status === 'en_cours' && r.loan_request.decision)) && <StatusChip status={r.status} />}
+      </>
+    )
+  }
   const triage = isToTriage(r)
   return (
     <>
@@ -44,8 +71,10 @@ export function RequestRow({ r, action, showSubject = true }) {
           </Stack>
           <Typography sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{r.subject}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-            {join([fmtShort(r.created_at), r.anonymous ? 'anonyme' : r.requester_name, r.category,
-              showSubject && r.subject_ref ? `sujet ${r.subject_ref.number}` : null])}
+            {r.loan_request
+              ? join([fmtShort(r.created_at), r.requester_name, `du ${fmtShort(r.loan_request.start_date)} au ${fmtShort(r.loan_request.due_date)}`])
+              : join([fmtShort(r.created_at), r.anonymous ? 'anonyme' : r.requester_name, r.category,
+                showSubject && r.subject_ref ? `sujet ${r.subject_ref.number}` : null])}
           </Typography>
         </CardActionArea>
         {action && <Box sx={{ px: 1.5, flexShrink: 0 }}>{action}</Box>}

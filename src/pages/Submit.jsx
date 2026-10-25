@@ -6,17 +6,7 @@ import {
 } from '@mui/material'
 import { useApp } from '../App'
 import { api, myCodes, myIdentity } from '../api'
-import { ErrorAlert, KindChoice, TicketCode } from '../components'
-
-function Fieldset({ legend, hint, children }) {
-  return (
-    <Box component="fieldset" sx={{ border: 0, p: 0, m: 0, mb: 4 }}>
-      <Typography component="legend" variant="h3" sx={{ mb: hint ? 0.5 : 1.5 }}>{legend}</Typography>
-      {hint && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, maxWidth: '60ch' }}>{hint}</Typography>}
-      {children}
-    </Box>
-  )
-}
+import { ErrorAlert, Fieldset, KindChoice, TicketCode } from '../components'
 
 export default function Submit() {
   const { config } = useApp()

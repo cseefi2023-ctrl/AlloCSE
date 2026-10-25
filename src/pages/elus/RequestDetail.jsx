@@ -7,9 +7,10 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import LockIcon from '@mui/icons-material/LockOutlined'
 import { useApp } from '../../App'
-import { api, fmtDate, fmtShort, periodLabel, STATUS, STATUS_ORDER } from '../../api'
+import { api, euros, fmtDate, fmtShort, hasAmount, loanRequestState, periodLabel, STATUS, STATUS_ORDER } from '../../api'
 import { CommitmentChip, DateField, ErrorAlert, Fold, MessageList, Section, SubjectStatusChip, Timeline } from '../../components'
 import { mono } from '../../theme'
+import { LoanAskDialog } from './Loans'
 import { isToTriage, RequestChips } from './shared'
 
 const MODES = {
@@ -35,6 +36,10 @@ export default function RequestDetail() {
   const [more, setMore] = useState(false)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState(null)
+  const [decide, setDecide] = useState(null) // demande d'emprunt : 'accept' | 'refuse'
+  // Demande d'emprunt en attente : pas d'onglet « Répondre », la réponse passe par Accepter / Refuser
+  const askPending = !!(r?.loan_request && !r.loan_request.decision)
+  const activeMode = askPending && mode === 'answer' ? 'message' : mode
 
   useEffect(() => {
     setR(null); setError(null); setPick(null); setAttach(false)
@@ -59,10 +64,10 @@ export default function RequestDetail() {
     try {
       setR(await api(`/requests/${id}/messages`, {
         method: 'POST',
-        body: { body, internal: mode === 'internal', is_answer: mode === 'answer', close: mode === 'answer' && closeIt },
+        body: { body, internal: activeMode === 'internal', is_answer: activeMode === 'answer', close: activeMode === 'answer' && closeIt },
       }))
       setBody(''); setCloseIt(false)
-      setToast(mode === 'internal' ? 'Note ajoutée' : 'Envoyé au salarié')
+      setToast(activeMode === 'internal' ? 'Note ajoutée' : 'Envoyé au salarié')
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
 
@@ -72,6 +77,8 @@ export default function RequestDetail() {
   const closed = r.status === 'close'
   const ref = r.subject_ref
   const triage = isToTriage(r)
+  const lr = r.loan_request
+  const modes = Object.entries(MODES).filter(([k]) => !(askPending && k === 'answer'))
 
   return (
     <Box sx={{ maxWidth: 860 }}>
@@ -97,31 +104,33 @@ export default function RequestDetail() {
         </Alert>
       )}
       <ErrorAlert error={error} onClose={() => setError(null)} />
+      {lr && <Box sx={{ mt: 3 }}><LoanCard r={r} closed={closed} onDecide={setDecide} /></Box>}
 
       <Section title="Échanges" sx={{ mt: 3 }}>
         <MessageList viewer="elu" messages={[{ id: 'orig', author_type: 'salarie', author: null, body: r.description, created_at: r.created_at, internal: false, is_answer: false }, ...r.messages]} />
       </Section>
 
       <Card component="form" onSubmit={send} sx={{ mb: 3 }}>
-        <Tabs value={mode} onChange={(_, v) => setMode(v)} variant="scrollable" allowScrollButtonsMobile sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          {Object.entries(MODES).map(([k, m]) => <Tab key={k} value={k} label={m.label} disabled={closed && k !== 'internal'} sx={{ textTransform: 'none', fontWeight: 700 }} />)}
+        <Tabs value={activeMode} onChange={(_, v) => setMode(v)} variant="scrollable" allowScrollButtonsMobile sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          {modes.map(([k, m]) => <Tab key={k} value={k} label={m.label} disabled={closed && k !== 'internal'} sx={{ textTransform: 'none', fontWeight: 700 }} />)}
         </Tabs>
         <CardContent>
-          {closed && mode !== 'internal'
+          {closed && activeMode !== 'internal'
             ? <Alert severity="info">Demande clôturée. Pour écrire au salarié, repassez-la « En cours d’étude » dans le suivi ci-dessous.</Alert>
             : <>
-              <TextField multiline minRows={3} value={body} onChange={(e) => setBody(e.target.value)} label={MODES[mode].label} helperText={MODES[mode].hint} />
+              <TextField multiline minRows={3} value={body} onChange={(e) => setBody(e.target.value)} label={MODES[activeMode].label} helperText={MODES[activeMode].hint} />
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={1} sx={{ mt: 1 }}>
-                {mode === 'answer'
+                {activeMode === 'answer'
                   ? <FormControlLabel control={<Checkbox checked={closeIt} onChange={(e) => setCloseIt(e.target.checked)} />} label="Clôturer la demande" />
                   : <span />}
-                <Button type="submit" variant="contained" disabled={busy || !body.trim()}>{MODES[mode].button}</Button>
+                <Button type="submit" variant="contained" disabled={busy || !body.trim()}>{MODES[activeMode].button}</Button>
               </Stack>
             </>}
         </CardContent>
       </Card>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
+        {!lr && (
         <Grid item xs={12} sm={6}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
@@ -180,6 +189,7 @@ export default function RequestDetail() {
             </CardContent>
           </Card>
         </Grid>
+        )}
 
         <Grid item xs={12} sm={6}>
           <Card sx={{ height: '100%' }}>
@@ -239,7 +249,54 @@ export default function RequestDetail() {
       <Fold title={`Historique (${r.events.length})`}>
         <Card><CardContent><Timeline events={[...r.events].reverse()} showInternal /></CardContent></Card>
       </Fold>
+      {lr && (
+        <LoanAskDialog requestId={r.id} open={!!decide} initialMode={decide || 'accept'} onClose={() => setDecide(null)}
+          onDone={(d, msg) => { setDecide(null); setR(d); setToast(msg) }} />
+      )}
       <Snackbar open={!!toast} autoHideDuration={2500} onClose={() => setToast(null)} message={toast} />
     </Box>
+  )
+}
+
+// Demande d'emprunt de matériel : ce qui est demandé, la réponse, le prêt
+const LOAN_LINE = {
+  attente: 'En attente de votre réponse',
+  reserve: 'Accepté : matériel réservé',
+  acceptee: 'Accepté',
+  sorti: 'Matériel remis au salarié',
+  retard: 'Retour en retard',
+  rendu: 'Matériel rendu',
+  annule: 'Réservation annulée',
+  refusee: 'Refusé',
+}
+
+function LoanCard({ r, closed, onDecide }) {
+  const lr = r.loan_request
+  const st = loanRequestState(lr)
+  const l = lr.loan
+  return (
+    <Card sx={st === 'attente' ? { borderColor: 'secondary.main', borderWidth: 2 } : undefined}>
+      <CardContent>
+        <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>Demande d’emprunt</Typography>
+        <Typography sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
+          {lr.equipment_name || 'Matériel supprimé'}{lr.quantity > 1 ? ` × ${lr.quantity}` : ''}
+        </Typography>
+        <Typography variant="body2">
+          Du {fmtShort(l?.start_date || lr.start_date)} au {fmtShort(l?.due_date || lr.due_date)}
+          {hasAmount(l ? l.deposit : lr.deposit) ? ` · caution ${euros(l ? l.deposit : lr.deposit)}` : ''}
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 1, fontWeight: 700 }}>{LOAN_LINE[st]}</Typography>
+        {st === 'attente' && lr.free != null && lr.free < lr.quantity && (
+          <Alert severity="warning" sx={{ mt: 1 }}>{lr.free <= 0 ? 'Déjà réservé à ces dates.' : `Plus que ${lr.free} disponible${lr.free > 1 ? 's' : ''} à ces dates.`}</Alert>
+        )}
+        {st === 'attente' && !closed && (
+          <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 1 }}>
+            {lr.equipment_active && <Button variant="contained" onClick={() => onDecide('accept')}>Accepter</Button>}
+            <Button variant="outlined" color="error" onClick={() => onDecide('refuse')}>Refuser</Button>
+          </Stack>
+        )}
+        {l && <Button component={RouterLink} to={`/elus/prets?pret=${l.id}`} size="small" sx={{ mt: 1, ml: -1 }}>Voir le prêt</Button>}
+      </CardContent>
+    </Card>
   )
 }

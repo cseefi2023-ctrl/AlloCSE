@@ -206,6 +206,17 @@ export function Section({ title, action, children, sx }) {
   )
 }
 
+// Bloc d'un formulaire du salarié : titre, aide facultative, champs
+export function Fieldset({ legend, hint, children }) {
+  return (
+    <Box component="fieldset" sx={{ border: 0, p: 0, m: 0, mb: 4, minWidth: 0 }}>
+      <Typography component="legend" variant="h3" sx={{ mb: hint ? 0.5 : 1.5 }}>{legend}</Typography>
+      {hint && <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, maxWidth: '60ch' }}>{hint}</Typography>}
+      {children}
+    </Box>
+  )
+}
+
 // Téléphone : les formulaires longs s'ouvrent en plein écran
 export const useNarrow = () => useMediaQuery((t) => t.breakpoints.down('sm'))
 

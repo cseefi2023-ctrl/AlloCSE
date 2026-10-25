@@ -8,6 +8,7 @@ import PublicLayout from './layouts/PublicLayout'
 import EluLayout from './layouts/EluLayout'
 import Home from './pages/Home'
 import Submit from './pages/Submit'
+import Borrow from './pages/Borrow'
 import Track from './pages/Track'
 import Setup, { UnknownSpace } from './pages/Setup'
 import Login from './pages/elus/Login'
@@ -94,6 +95,7 @@ export default function App() {
             <Route element={<PublicLayout />}>
               <Route index element={<Home />} />
               <Route path="deposer" element={<Submit />} />
+              <Route path="emprunter" element={<Borrow />} />
               <Route path="suivi" element={<Track />} />
               <Route path="suivi/:code" element={<Track />} />
               <Route path="elus/connexion" element={<Login />} />

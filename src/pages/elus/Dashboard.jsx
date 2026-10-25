@@ -46,10 +46,12 @@ export default function Dashboard() {
   const toRecord = stats.votes_to_record || []
   const loansLate = stats.loans_late || []
   const toHand = stats.loans_to_hand || []
+  const asks = stats.loan_requests || []
   const next = nextMeetingOf(prep)
   const idea = suggestions.ordinaire
-  const nothing = todo.length === 0 && !late && !pendingElus && !toCast.length && !toRecord.length && !loansLate.length && !toHand.length
-  const thing = (l) => `${l.equipment}${l.quantity > 1 ? ` (× ${l.quantity})` : ''}`
+  const nothing = todo.length === 0 && !late && !pendingElus && !toCast.length && !toRecord.length && !loansLate.length
+    && !toHand.length && !asks.length
+  const thing = (l) => `${l.equipment || 'Matériel'}${l.quantity > 1 ? ` (× ${l.quantity})` : ''}`
 
   return (
     <Box sx={{ maxWidth: 860 }}>
@@ -72,6 +74,11 @@ export default function Dashboard() {
               {todo.length > MAX_ROWS && (
                 <TodoRow to="/elus/demandes?vue=tri" icon={<Box sx={{ width: 24 }} />} primary={`Voir les ${todo.length} demandes à trier`} />
               )}
+              {asks.map((a) => (a.decision
+                ? <TodoRow key={`d${a.id}`} to={`/elus/demandes/${a.id}`} icon={<InventoryIcon color="primary" />} primary={`${thing(a)} : nouveau message`}
+                  secondary={`${a.requester_name || 'Salarié'} a écrit après votre réponse`} />
+                : <TodoRow key={`d${a.id}`} to={`/elus/prets?demande=${a.id}`} icon={<InventoryIcon color="primary" />} primary={`${thing(a)} : demande d’emprunt`}
+                  secondary={`${a.requester_name || 'Salarié'} · du ${fmtShort(a.start_date)} au ${fmtShort(a.due_date)}`} />))}
               {toCast.map((v) => (
                 <TodoRow key={`v${v.id}`} to={`/elus/votes/${v.id}`} icon={<HowToVoteIcon color="primary" />} primary={v.title}
                   secondary={['Vote en ligne : à vous de voter', deadlineLabel(v.deadline)].filter(Boolean).join(' · ')} />
