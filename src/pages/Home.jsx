@@ -24,9 +24,16 @@ export default function Home() {
   useEffect(() => {
     let alive = true
     for (const c of myCodes.list()) {
+      // Un numéro déjà introuvable n'est plus redemandé : les numéros inconnus comptent comme
+      // des tentatives erronées, limitées par la base
+      if (c.gone) { setStates((s) => ({ ...s, [c.code]: TICKET.gone })); continue }
       api(`/public/requests/${encodeURIComponent(c.code)}`)
         .then((d) => { if (alive) setStates((s) => ({ ...s, [c.code]: ticketState(d) })) })
-        .catch((e) => { if (alive && e.status === 404) setStates((s) => ({ ...s, [c.code]: TICKET.gone })) })
+        .catch((e) => {
+          if (e.status !== 404) return
+          myCodes.markGone(c.code)
+          if (alive) setStates((s) => ({ ...s, [c.code]: TICKET.gone }))
+        })
     }
     return () => { alive = false }
   }, [])

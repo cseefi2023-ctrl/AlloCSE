@@ -122,7 +122,7 @@ export default function Submit() {
           <TextField label="Objet" value={form.subject} onChange={set('subject')} required inputProps={{ maxLength: 200 }}
             placeholder={form.kind === 'signalement' ? 'Ex. : fontaine à eau balisée' : 'Ex. : date des chèques cadeaux'} />
           <TextField label="Détails" value={form.description} onChange={set('description')} required multiline minRows={5}
-            helperText="Où, quand, qui est concerné, ce que vous attendez du CSE." />
+            inputProps={{ maxLength: 10000 }} helperText="Où, quand, qui est concerné, ce que vous attendez du CSE." />
         </Stack>
       </Fieldset>
 
@@ -132,12 +132,14 @@ export default function Submit() {
         <Stack spacing={2}>
           <Collapse in={!form.anonymous} unmountOnExit>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Nom et prénom" value={form.requester_name} onChange={set('requester_name')} autoComplete="name" />
-              <TextField label="Service ou atelier" value={form.requester_service} onChange={set('requester_service')} />
+              <TextField label="Nom et prénom" value={form.requester_name} onChange={set('requester_name')} autoComplete="name"
+                inputProps={{ maxLength: 120 }} />
+              <TextField label="Service ou atelier" value={form.requester_service} onChange={set('requester_service')}
+                inputProps={{ maxLength: 120 }} />
             </Stack>
           </Collapse>
           <TextField label="E-mail" type="email" value={form.requester_email}
-            onChange={set('requester_email')} autoComplete="email" inputProps={{ inputMode: 'email' }}
+            onChange={set('requester_email')} autoComplete="email" inputProps={{ inputMode: 'email', maxLength: 190 }}
             helperText={form.anonymous
               ? 'Seulement si vous voulez être prévenu : jamais montrée aux élus, effacée une fois la demande close.'
               : 'Pour que les élus puissent vous recontacter.'} />

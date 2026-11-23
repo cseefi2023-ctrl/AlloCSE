@@ -38,6 +38,10 @@ export const myCodes = {
   remove(code) {
     safeSet(CODES_KEY, JSON.stringify(myCodes.list().filter((c) => c.code !== code)))
   },
+  // Numéro introuvable (demande supprimée) : il n'est plus vérifié à chaque visite
+  markGone(code) {
+    safeSet(CODES_KEY, JSON.stringify(myCodes.list().map((c) => (c.code === code ? { ...c, gone: true } : c))))
+  },
 }
 
 // Coordonnées du salarié retenues sur cet appareil (nom, service, e-mail), pour ne pas les retaper
@@ -54,7 +58,7 @@ export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status }
 }
 
-const SQL_STATUS = { P0002: 404, 42501: 403, 23505: 409, 22023: 400 }
+const SQL_STATUS = { P0002: 404, 42501: 403, 23505: 409, 22023: 400, PT429: 429 }
 const FRIENDLY = [
   [/invalid login credentials/i, 'Identifiants incorrects.'],
   [/already registered|already been registered|already exists/i, 'Un compte existe déjà avec cet e-mail.'],
@@ -68,6 +72,10 @@ const FRIENDLY = [
 
 function toError(error) {
   if (error instanceof ApiError) return error
+  // Trop d'appels en peu de temps : la base explique pourquoi dans « details »
+  if (error?.code === 'PT429') {
+    return new ApiError(429, error.details || 'Trop de demandes en peu de temps : réessayez dans quelques minutes.')
+  }
   const msg = error?.message || String(error)
   const status = SQL_STATUS[error?.code] || error?.status || 500
   for (const [re, fr] of FRIENDLY) if (re.test(msg)) return new ApiError(status, fr)
@@ -93,7 +101,11 @@ const ROUTES = [
     if (!d) throw new ApiError(404, 'Aucune demande ne correspond à ce numéro de suivi.')
     return d
   }],
-  ['POST', /^\/public\/requests\/([^/]+)\/messages$/, ([code], b) => rpc('add_public_message', { p_code: decodeURIComponent(code), p_body: b.body })],
+  ['POST', /^\/public\/requests\/([^/]+)\/messages$/, async ([code], b) => {
+    const d = await rpc('add_public_message', { p_code: decodeURIComponent(code), p_body: b.body })
+    if (!d) throw new ApiError(404, 'Aucune demande ne correspond à ce numéro de suivi.')
+    return d
+  }],
   ['GET', /^\/public\/equipment$/, () => rpc('public_equipment')],
   ['GET', /^\/public\/equipment\/(\d+)\/availability$/, ([id], _, q) => rpc('public_availability', {
     p_equipment_id: Number(id), p_from: q.from, p_to: q.to,

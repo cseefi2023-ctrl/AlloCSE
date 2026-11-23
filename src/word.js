@@ -123,7 +123,15 @@ function paragraphText(p) {
   return text
 }
 
-function setText(p, text) {
+// Caractères interdits dans un document Word (XML 1.0), par exemple un saut de ligne vertical collé
+// depuis Word : retirés ou changés en retour à la ligne, sinon Word refuse d'ouvrir le fichier
+const wordSafe = (text) => String(text ?? '')
+  .replace(/\r\n?|[\v\f\u2028\u2029]/g, '\n')
+  // eslint-disable-next-line no-control-regex
+  .replace(/[\u0000-\u0008\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+
+function setText(p, raw) {
+  const text = wordSafe(raw)
   const doc = p.ownerDocument
   const runs = kids(p, 'r')
   let run = runs[0]

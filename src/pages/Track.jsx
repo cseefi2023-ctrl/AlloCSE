@@ -149,7 +149,8 @@ export default function Track() {
         <MessageList messages={[{ id: 'orig', author_type: 'salarie', body: data.description, created_at: data.created_at, internal: false, is_answer: false }, ...data.messages]} viewer="salarie" />
         {data.status !== 'close' ? (
           <Box component="form" onSubmit={send} sx={{ mt: 2 }}>
-            <TextField label="Ajouter une précision" multiline minRows={3} value={reply} onChange={(e) => setReply(e.target.value)} />
+            <TextField label="Ajouter une précision" multiline minRows={3} value={reply} onChange={(e) => setReply(e.target.value)}
+              inputProps={{ maxLength: 10000 }} />
             <ErrorAlert error={error} onClose={() => setError(null)} />
             <Button type="submit" variant="contained" disabled={sending || !reply.trim()} sx={{ mt: 1.5 }}>Envoyer la précision</Button>
           </Box>

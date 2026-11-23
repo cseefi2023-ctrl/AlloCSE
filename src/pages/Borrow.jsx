@@ -162,11 +162,13 @@ export default function Borrow() {
       <Fieldset legend="Qui êtes-vous ?" hint="Pour que les élus sachent à qui prêter le matériel.">
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Nom et prénom" value={f.requester_name} onChange={set('requester_name')} autoComplete="name" required />
-            <TextField label="Service ou atelier" value={f.requester_service} onChange={set('requester_service')} />
+            <TextField label="Nom et prénom" value={f.requester_name} onChange={set('requester_name')} autoComplete="name" required
+              inputProps={{ maxLength: 120 }} />
+            <TextField label="Service ou atelier" value={f.requester_service} onChange={set('requester_service')}
+              inputProps={{ maxLength: 120 }} />
           </Stack>
           <TextField label="E-mail" type="email" value={f.requester_email} onChange={set('requester_email')} autoComplete="email"
-            inputProps={{ inputMode: 'email' }} helperText="Facultatif : pour que les élus puissent vous joindre." />
+            inputProps={{ inputMode: 'email', maxLength: 190 }} helperText="Facultatif : pour que les élus puissent vous joindre." />
         </Stack>
         <FormControlLabel sx={{ mt: 1.5, alignItems: 'flex-start', display: 'flex' }}
           control={<Checkbox checked={f.notify} onChange={set('notify')} sx={{ mt: -0.75 }} />}

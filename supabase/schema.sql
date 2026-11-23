@@ -6,7 +6,8 @@
 --
 --  Toutes les règles d'accès vivent ici (Row Level Security + fonctions) :
 --  la clé publique visible dans la page web ne permet RIEN d'autre que
---  déposer une demande, la suivre avec son numéro et lire la configuration.
+--  déposer une demande, la suivre avec son numéro et lire la configuration,
+--  avec un nombre d'appels limité (voir « Limitation des appels publics »).
 -- =============================================================================
 
 create schema if not exists private;
@@ -428,7 +429,7 @@ end $$;
 --  Utilitaires
 -- -----------------------------------------------------------------------------
 
-create function private.status_label(s text) returns text language sql immutable as $$
+create function private.status_label(s text) returns text language sql immutable set search_path = public as $$
   select case s
     when 'nouvelle' then 'Nouvelle'
     when 'en_cours' then 'En cours d''étude'
@@ -437,7 +438,7 @@ create function private.status_label(s text) returns text language sql immutable
     when 'close' then 'Clôturée' end
 $$;
 
-create function private.subject_status_label(s text) returns text language sql immutable as $$
+create function private.subject_status_label(s text) returns text language sql immutable set search_path = public as $$
   select case s
     when 'ouvert' then 'En cours'
     when 'inscrit_odj' then 'Inscrit à l''ordre du jour'
@@ -445,17 +446,27 @@ create function private.subject_status_label(s text) returns text language sql i
     when 'clos' then 'Clos' end
 $$;
 
-create function private.fr_date(d date) returns text language sql immutable as $$
+create function private.fr_date(d date) returns text language sql immutable set search_path = public as $$
   select to_char(d, 'DD/MM/YYYY')
 $$;
 
-create function private.month_name(m int) returns text language sql immutable as $$
+create function private.month_name(m int) returns text language sql immutable set search_path = public as $$
   select (array['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
                 'septembre', 'octobre', 'novembre', 'décembre'])[m]
 $$;
 
-create function private.today() returns date language sql stable as $$
+create function private.today() returns date language sql stable set search_path = public as $$
   select (now() at time zone 'Europe/Paris')::date
+$$;
+
+-- Texte saisi par un salarié : retours à la ligne unifiés ; caractères de contrôle invisibles et
+-- inversions du sens d'écriture (qui peuvent maquiller un texte) retirés ; espaces de début et de fin ôtés.
+-- Le texte est ensuite toujours affiché comme du texte (jamais comme du HTML) : rien d'autre à filtrer.
+create function private.clean_text(t text) returns text
+language sql immutable set search_path = public as $$
+  select btrim(regexp_replace(
+           regexp_replace(replace(replace(t, E'\r\n', E'\n'), E'\r', E'\n'), '[\x0b\x0c\x85\x2028\x2029]', E'\n', 'g'),
+           '[\x01-\x08\x0e-\x1f\x7f-\x9f\x200b\x202a-\x202e\x2066-\x2069\xfeff]', '', 'g'), E' \t\n')
 $$;
 
 create function private.add_event(rid bigint, lbl text, is_public boolean default true) returns void
@@ -514,7 +525,7 @@ end $$;
 
 -- « depuis le 12/09/2026 », « du 12/09/2026 au 30/09/2026 »… ou '' si inconnue
 create function private.period_text(temporality text, s_start date, s_end date) returns text
-language sql immutable as $$
+language sql immutable set search_path = public as $$
   select case
     when s_start is not null and s_end is not null
       then 'du ' || private.fr_date(s_start) || ' au ' || private.fr_date(s_end)
@@ -524,7 +535,7 @@ language sql immutable as $$
     else '' end
 $$;
 
-create function private.period_label(r public.requests) returns text language sql immutable as $$
+create function private.period_label(r public.requests) returns text language sql immutable set search_path = public as $$
   select private.period_text(r.temporality, r.situation_start, r.situation_end)
 $$;
 
@@ -898,6 +909,124 @@ grant update (organisation, contact, categories, odj_weights, odj_wordings, odj_
   mail_from, app_url) on public.settings to authenticated;
 
 -- -----------------------------------------------------------------------------
+--  Limitation des appels publics (sans compte) : demandes déposées, compléments,
+--  numéros de suivi erronés. Au-delà, l'appel est refusé (HTTP 429, message clair).
+--  L'anonymat des salariés est préservé : aucune adresse IP n'est conservée, aucun lien
+--  avec les demandes ; seulement une empreinte de 4 caractères de l'adresse (65 536 valeurs,
+--  chacune partagée par des milliers d'adresses) et des compteurs par fenêtre de temps.
+--  Les seuils sont larges : tout un site derrière une même adresse (réseau de l'usine)
+--  ne les atteint pas en usage normal.
+-- -----------------------------------------------------------------------------
+
+create table private.api_limits (
+  bucket  text not null,                        -- depot, depot_jour, message, erreur
+  who     text not null,                        -- empreinte de l'adresse, demande:<id>, ou * (tout l'espace)
+  started timestamptz not null default now(),   -- début de la fenêtre en cours
+  hits    int not null default 0,
+  primary key (bucket, who)
+);
+alter table private.api_limits enable row level security;
+revoke all on private.api_limits from public, anon, authenticated;
+
+-- Empreinte de l'appelant : « cf:xxxx » (adresse transmise par Cloudflare, devant Supabase), sinon
+-- « xf:xxxx » (X-Forwarded-For). En IPv6, le préfixe /64, qu'un même abonné possède en entier.
+create function private.client_key() returns text
+language plpgsql stable set search_path = public as $$
+declare h jsonb; src text := 'cf'; ip text; a inet;
+begin
+  begin
+    h := nullif(current_setting('request.headers', true), '')::jsonb;
+  exception when others then
+    h := null;
+  end;
+  ip := nullif(btrim(h ->> 'cf-connecting-ip'), '');
+  if ip is null then
+    src := 'xf';
+    ip := nullif(btrim(split_part(h ->> 'x-forwarded-for', ',', 1)), '');
+  end if;
+  if ip is null then return 'aucune'; end if;
+  begin
+    a := ip::inet;
+    ip := case when family(a) = 6 then host(network(set_masklen(a, 64))) else host(a) end;
+  exception when others then
+    ip := left(ip, 64);
+  end;
+  return src || ':' || left(md5('allocse|' || ip), 4);
+end $$;
+
+-- Compte un appel ; renvoie le nombre d'appels de la fenêtre en cours (fenêtre neuve si l'ancienne est passée)
+create function private.count_hit(p_bucket text, p_who text, p_window interval) returns int
+language plpgsql volatile security definer set search_path = public as $$
+declare n int;
+begin
+  insert into private.api_limits as l (bucket, who, started, hits) values (p_bucket, p_who, now(), 1)
+  on conflict (bucket, who) do update
+    set hits    = case when l.started <= now() - p_window then 1 else l.hits + 1 end,
+        started = case when l.started <= now() - p_window then now() else l.started end
+  returning l.hits into n;
+  return n;
+end $$;
+
+-- Appels déjà comptés dans la fenêtre en cours, sans compter celui-ci
+create function private.hits(p_bucket text, p_who text, p_window interval) returns int
+language sql stable security definer set search_path = public as $$
+  select coalesce((select l.hits from private.api_limits l
+                   where l.bucket = p_bucket and l.who = p_who and l.started > now() - p_window), 0)
+$$;
+
+-- Refus « trop d'appels » : HTTP 429 ; le message destiné au salarié est dans « details »
+create function private.too_many(msg text) returns void
+language plpgsql volatile set search_path = public as $$
+begin
+  raise exception using errcode = 'PT429', message = 'Too Many Requests', detail = msg;
+end $$;
+
+-- Les limites. « depot » : demandes et emprunts déposés ; « message » : compléments des salariés ;
+-- « suivi » / « erreur » : seuls les numéros inconnus comptent (on peut relire sa demande autant
+-- qu'on veut), et trop d'erreurs suspendent les recherches quelques minutes.
+-- Un appel refusé (ou qui échoue) n'est jamais compté : seuls les dépôts et messages réussis le sont.
+create function private.guard(kind text, rid bigint default null) returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare me text := private.client_key(); n_ip int; n_all int; n_day int; n_req int;
+begin
+  if kind = 'depot' then
+    n_ip := private.count_hit('depot', me, interval '1 hour');
+    n_all := private.count_hit('depot', '*', interval '1 hour');
+    n_day := private.count_hit('depot_jour', '*', interval '1 day');
+    if n_ip > 30 then
+      perform private.too_many('Beaucoup de demandes ont été déposées depuis ce réseau en peu de temps. '
+        || 'Réessayez dans une heure, ou écrivez directement au CSE.');
+    end if;
+    if n_all > 100 or n_day > 300 then
+      perform private.too_many('AlloCSE reçoit exceptionnellement beaucoup de demandes. '
+        || 'Réessayez un peu plus tard, ou écrivez directement au CSE.');
+    end if;
+  elsif kind = 'message' then
+    n_ip := private.count_hit('message', me, interval '1 hour');
+    n_all := private.count_hit('message', '*', interval '1 hour');
+    n_req := private.count_hit('message', 'demande:' || rid, interval '1 day');
+    if n_req > 30 then
+      perform private.too_many('Beaucoup de messages ont déjà été ajoutés à cette demande aujourd''hui. '
+        || 'Réessayez demain, ou écrivez directement au CSE.');
+    end if;
+    if n_ip > 60 or n_all > 300 then
+      perform private.too_many('Beaucoup de messages ont été envoyés en peu de temps. Réessayez dans une heure.');
+    end if;
+  elsif kind = 'suivi' then
+    if private.hits('erreur', me, interval '10 minutes') >= 30
+       or private.hits('erreur', '*', interval '10 minutes') >= 300 then
+      perform private.too_many('Trop de numéros de suivi erronés en peu de temps. '
+        || 'Réessayez dans une dizaine de minutes, en vérifiant le numéro.');
+    end if;
+  elsif kind = 'erreur' then
+    perform private.count_hit('erreur', me, interval '10 minutes');
+    perform private.count_hit('erreur', '*', interval '10 minutes');
+  else
+    raise exception 'Limite inconnue : %', kind;
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
 --  Salariés (sans compte)
 -- -----------------------------------------------------------------------------
 
@@ -957,28 +1086,42 @@ declare
   vis boolean := coalesce((p ->> 'visible_to_all')::boolean, true);
   s_start date;
   s_end date;
-  email text := nullif(lower(trim(p ->> 'requester_email')), '');
+  subj text := coalesce(private.clean_text(p ->> 'subject'), '');
+  descr text := coalesce(private.clean_text(p ->> 'description'), '');
+  who text := nullif(private.clean_text(p ->> 'requester_name'), '');
+  service text := nullif(private.clean_text(p ->> 'requester_service'), '');
+  email text := nullif(lower(private.clean_text(p ->> 'requester_email')), '');
   notify boolean := coalesce((p ->> 'notify')::boolean, false);
   notify_to text;
 begin
+  perform private.guard('depot');
   if k not in ('demande', 'signalement') then
     raise exception 'Type de demande invalide.' using errcode = '22023';
   end if;
   if not exists (select 1 from settings where id = 1 and (p ->> 'category') = any (categories)) then
     raise exception 'Choisissez un thème dans la liste.' using errcode = '22023';
   end if;
-  if char_length(trim(coalesce(p ->> 'subject', ''))) < 3 then
+  if char_length(subj) < 3 then
     raise exception 'Donnez un objet d''au moins 3 caractères.' using errcode = '22023';
   end if;
-  if char_length(trim(coalesce(p ->> 'description', ''))) < 5 then
+  if char_length(subj) > 200 then
+    raise exception 'L''objet est trop long (200 caractères au plus).' using errcode = '22023';
+  end if;
+  if char_length(descr) < 5 then
     raise exception 'Décrivez la situation en quelques mots.' using errcode = '22023';
   end if;
-  if email is not null and email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+  if char_length(descr) > 10000 then
+    raise exception 'La description est trop longue (10 000 caractères au plus).' using errcode = '22023';
+  end if;
+  if not anon and (char_length(coalesce(who, '')) > 120 or char_length(coalesce(service, '')) > 120) then
+    raise exception 'Nom ou service trop long (120 caractères au plus).' using errcode = '22023';
+  end if;
+  if email is not null and (email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' or char_length(email) > 190) then
     raise exception 'L''adresse e-mail ne semble pas valide.' using errcode = '22023';
   end if;
   -- Être prévenu par e-mail : adresse saisie pour l'occasion (même anonyme), sinon celle du demandeur
   if notify then
-    notify_to := coalesce(nullif(lower(trim(p ->> 'notify_email')), ''), case when not anon then email end);
+    notify_to := coalesce(nullif(lower(private.clean_text(p ->> 'notify_email')), ''), case when not anon then email end);
     if notify_to is null then
       raise exception 'Indiquez votre adresse e-mail pour être prévenu.' using errcode = '22023';
     end if;
@@ -1009,11 +1152,11 @@ begin
                             description, anonymous, requester_name, requester_email, requester_service, visible_to_all)
       values (code, k,
               case when k = 'signalement' then coalesce(nullif(p ->> 'temporality', ''), 'actuel') end,
-              s_start, s_end, p ->> 'category', trim(p ->> 'subject'), trim(p ->> 'description'), anon,
+              s_start, s_end, p ->> 'category', subj, descr, anon,
               -- Anonyme : aucune donnée d'identité n'est enregistrée
-              case when anon then null else nullif(trim(p ->> 'requester_name'), '') end,
+              case when anon then null else who end,
               case when anon then null else email end,
-              case when anon then null else nullif(trim(p ->> 'requester_service'), '') end,
+              case when anon then null else service end,
               vis)
       returning id into rid;
       exit;
@@ -1065,13 +1208,14 @@ declare
   q int := coalesce(nullif(p ->> 'quantity', '')::int, 1);
   d1 date := nullif(p ->> 'start_date', '')::date;
   d2 date := nullif(p ->> 'due_date', '')::date;
-  who text := nullif(trim(p ->> 'requester_name'), '');
-  service text := nullif(trim(p ->> 'requester_service'), '');
-  email text := nullif(lower(trim(p ->> 'requester_email')), '');
+  who text := nullif(private.clean_text(p ->> 'requester_name'), '');
+  service text := nullif(private.clean_text(p ->> 'requester_service'), '');
+  email text := nullif(lower(private.clean_text(p ->> 'requester_email')), '');
   notify boolean := coalesce((p ->> 'notify')::boolean, false);
-  msg text := nullif(trim(p ->> 'message'), '');
+  msg text := nullif(private.clean_text(p ->> 'message'), '');
   free int;
 begin
+  perform private.guard('depot');
   select * into e from equipment where id = nullif(p ->> 'equipment_id', '')::bigint and active;
   if e.id is null then raise exception 'Choisissez le matériel à emprunter.' using errcode = '22023'; end if;
   perform private.check_loan_dates(d1, d2);
@@ -1132,25 +1276,45 @@ begin
 end $$;
 
 create function public.track_request(p_code text) returns jsonb
-language sql stable security definer set search_path = public as $$
-  select private.public_view(id) from requests where tracking_code = private.normalize_code(p_code)
-$$;
+language plpgsql volatile security definer set search_path = public as $$
+declare rid bigint;
+begin
+  perform private.guard('suivi');
+  if char_length(coalesce(p_code, '')) <= 40 then
+    select id into rid from requests where tracking_code = private.normalize_code(p_code);
+  end if;
+  if rid is null then
+    -- Numéro inconnu : l'échec est compté (protection contre les numéros essayés au hasard)
+    perform private.guard('erreur');
+    return null;
+  end if;
+  return private.public_view(rid);
+end $$;
 
 create function public.add_public_message(p_code text, p_body text) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare r requests;
+declare r requests; body text := coalesce(private.clean_text(p_body), '');
 begin
-  select * into r from requests where tracking_code = private.normalize_code(p_code);
+  perform private.guard('suivi');
+  if char_length(coalesce(p_code, '')) <= 40 then
+    select * into r from requests where tracking_code = private.normalize_code(p_code);
+  end if;
   if r.id is null then
-    raise exception 'Aucune demande ne correspond à ce numéro de suivi.' using errcode = 'P0002';
+    -- Comme pour le suivi : rien n'est renvoyé et l'échec est compté
+    perform private.guard('erreur');
+    return null;
   end if;
   if r.status = 'close' then
     raise exception 'Cette demande est clôturée. Déposez une nouvelle demande si besoin.' using errcode = '22023';
   end if;
-  if char_length(trim(coalesce(p_body, ''))) = 0 then
+  if char_length(body) = 0 then
     raise exception 'Le message est vide.' using errcode = '22023';
   end if;
-  insert into messages (request_id, author_type, body) values (r.id, 'salarie', trim(p_body));
+  if char_length(body) > 10000 then
+    raise exception 'Message trop long (10 000 caractères au plus).' using errcode = '22023';
+  end if;
+  perform private.guard('message', r.id);
+  insert into messages (request_id, author_type, body) values (r.id, 'salarie', body);
   insert into events (request_id, label) values (r.id, 'Complément apporté par le salarié');
   if r.status = 'repondue' then
     perform private.set_status(r.id, 'en_cours');
@@ -2349,11 +2513,11 @@ end $$;
 --  Bulletin secret : personne, même un administrateur, ne voit qui a voté quoi.
 -- -----------------------------------------------------------------------------
 
-create function private.is_standard_vote(opts text[]) returns boolean language sql immutable as $$
+create function private.is_standard_vote(opts text[]) returns boolean language sql immutable set search_path = public as $$
   select opts = array['Pour', 'Contre', 'Abstention']
 $$;
 
-create function private.vote_closed(v public.votes) returns boolean language sql stable as $$
+create function private.vote_closed(v public.votes) returns boolean language sql stable set search_path = public as $$
   select v.status = 'clos' or (v.mode = 'en_ligne' and v.deadline is not null and v.deadline <= now())
 $$;
 
@@ -2376,7 +2540,7 @@ end $$;
 
 -- Pour / contre / abstention : résolution adoptée à la majorité des votants (les abstentions comptent)
 create function private.vote_result(opts text[], counts int[]) returns text
-language plpgsql immutable as $$
+language plpgsql immutable set search_path = public as $$
 declare total int;
 begin
   if counts is null or not private.is_standard_vote(opts) then return null; end if;
@@ -2458,7 +2622,7 @@ end $$;
 
 -- Réponses d'un vote en ligne : « Pour, Contre, Abstention » par défaut, ou 2 à 8 choix libres
 create function private.vote_options(x jsonb, md text) returns text[]
-language plpgsql immutable as $$
+language plpgsql immutable set search_path = public as $$
 declare opts text[];
 begin
   if md = 'seance' or x is null or jsonb_typeof(x) <> 'array' or jsonb_array_length(x) = 0 then
@@ -2478,7 +2642,7 @@ end $$;
 
 -- Date limite : un jour (AAAA-MM-JJ) compte jusqu'au soir, heure de Paris
 create function private.vote_deadline(x text) returns timestamptz
-language plpgsql stable as $$
+language plpgsql stable set search_path = public as $$
 declare d timestamptz;
 begin
   if nullif(trim(coalesce(x, '')), '') is null then return null; end if;
@@ -2669,7 +2833,7 @@ end $$;
 -- -----------------------------------------------------------------------------
 
 -- Fin de l'occupation du matériel. Un prêt sorti et en retard le bloque tant qu'il n'est pas rendu.
-create function private.loan_end(l public.loans) returns date language sql stable as $$
+create function private.loan_end(l public.loans) returns date language sql stable set search_path = public as $$
   select case when l.status = 'sorti' and l.due_date < private.today() then 'infinity'::date else l.due_date end
 $$;
 
@@ -2705,7 +2869,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 create function private.check_loan_dates(d1 date, d2 date) returns void
-language plpgsql immutable as $$
+language plpgsql immutable set search_path = public as $$
 begin
   if d1 is null or d2 is null then raise exception 'Indiquez les dates de sortie et de retour.' using errcode = '22023'; end if;
   if d2 < d1 then raise exception 'Le retour ne peut pas précéder la sortie.' using errcode = '22023'; end if;
@@ -3128,7 +3292,7 @@ end $$;
 -- ---------- Exemple fourni : un CSE fictif, avec des dates relatives à aujourd'hui ----------
 
 -- Il y a n jours, à h heures (heure de Paris)
-create function private.ago(n int, h int default 10) returns timestamptz language sql stable as $$
+create function private.ago(n int, h int default 10) returns timestamptz language sql stable set search_path = public as $$
   select ((private.today() - n)::timestamp + make_interval(hours => h)) at time zone 'Europe/Paris'
 $$;
 
@@ -3649,7 +3813,7 @@ create trigger requests_close_notify after update of status on public.requests
   for each row when (new.status = 'close' and old.status is distinct from 'close')
   execute function private.on_close_notify();
 
-create function private.html_escape(t text) returns text language sql immutable as $$
+create function private.html_escape(t text) returns text language sql immutable set search_path = public as $$
   select replace(replace(replace(replace(coalesce(t, ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '"', '&quot;')
 $$;
 
@@ -3855,3 +4019,4 @@ grant execute on function private.request_summary(public.requests), private.elu_
 
 -- Les fonctions créées plus tard ne seront pas exécutables par défaut
 alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
+alter default privileges in schema private revoke execute on functions from public, anon, authenticated;

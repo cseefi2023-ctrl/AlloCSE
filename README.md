@@ -180,6 +180,29 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
   Les notes internes ne sont jamais renvoyées côté salarié.
 - **Demande anonyme** : ni nom, ni service, ni e-mail ne sont enregistrés.
 - Toutes les écritures passent par des fonctions qui vérifient les droits. Seuls les **administrateurs** valident les comptes et modifient les réglages et les modèles.
+- **Appels limités** (sans compte) : au-delà, la base refuse poliment (« réessayez dans une heure ») :
+  - demandes et emprunts déposés : 30 par heure depuis une même adresse, 100 par heure et 300 par jour en tout ;
+  - précisions ajoutées par les salariés : 30 par jour sur une même demande, 60 par heure depuis une même adresse ;
+  - numéros de suivi inconnus : après 30 erreurs en 10 minutes depuis une adresse (300 en tout), les recherches
+    sont suspendues 10 minutes. Relire sa propre demande ne compte jamais. Avec environ 40 bits de hasard par
+    numéro, deviner celui d'un collègue est hors de portée.
+
+  Aucune adresse IP n'est conservée : seulement une empreinte de 4 caractères, partagée par des milliers d'adresses.
+  Les seuils sont larges : toute l'usine derrière une même adresse ne les atteint pas en usage normal.
+- **Textes saisis nettoyés** : caractères de contrôle invisibles et inversions du sens d'écriture retirés,
+  longueurs vérifiées dans la page **et** dans la base. Les textes sont toujours affichés comme du texte, jamais
+  interprétés (pages, e-mails, impression, documents Word).
+- **Page protégée** : seuls les scripts de l'application s'exécutent et elle ne dialogue qu'avec Supabase
+  (politique de sécurité du contenu, ajoutée à la construction) ; elle refuse de s'afficher dans la page d'un autre
+  site ; son adresse n'est jamais transmise aux sites tiers.
+- **Aucun secret dans le dépôt** : `config.js` ne contient que les clés publiques ; la clé Brevo est dans le coffre-fort
+  de Supabase.
+
+### Réglages à vérifier dans Supabase (Authentication)
+
+- **Sign In / Providers > Email** : *Confirm email* activé ; mot de passe d'au moins 10 caractères (*Minimum password
+  length*) avec lettres et chiffres (*Password requirements*) ; *Prevent use of leaked passwords* si l'offre le permet.
+- **Rate Limits** : laisser les valeurs par défaut (elles freinent les essais de mots de passe).
 
 ## Structure
 
@@ -191,6 +214,7 @@ La clé publique est visible dans la page : c'est normal, elle est faite pour ç
 │   ├── migration_sujets.sql    mise à jour : sujets du CSE en fiches à part (convertit les données)
 │   ├── migration_votes_prets.sql  mise à jour : votes du CSE et prêts de matériel (ajoute, ne modifie rien)
 │   ├── migration_emprunts.sql  mise à jour : demandes d'emprunt des salariés (ajoute, ne modifie rien)
+│   ├── migration_securite.sql  mise à jour : limitation des appels publics, textes nettoyés (ne modifie aucune donnée)
 │   ├── demo.sql                transforme une base en démonstration (projet démo uniquement)
 │   └── reset.sql               remise à zéro avant réinstallation
 ├── public/
